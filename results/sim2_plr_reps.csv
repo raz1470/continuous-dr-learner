@@ -1,0 +1,301 @@
+rep,outcome,treatment_model,score,theta,covered
+0,right,right,partialling out,1.006955335354536,True
+0,right,right,IV-type,1.0077462875945369,True
+0,wrong,right,partialling out,1.0159317332291535,True
+0,wrong,right,IV-type,1.0143563910778006,True
+0,right,wrong,partialling out,0.9256509262134065,False
+0,right,wrong,IV-type,0.9987562934068913,True
+0,wrong,wrong,partialling out,1.3516811929361365,False
+0,wrong,wrong,IV-type,1.3519217031552506,False
+0,boosted,boosted,partialling out,0.9998331887277767,True
+0,boosted,boosted,IV-type,1.0144244793122985,True
+1,right,right,partialling out,1.0074555665347964,True
+1,right,right,IV-type,1.0090378712111554,True
+1,wrong,right,partialling out,1.0248499090464454,True
+1,wrong,right,IV-type,1.0181140291087007,True
+1,right,wrong,partialling out,0.922861130094979,False
+1,right,wrong,IV-type,1.0008603864267152,True
+1,wrong,wrong,partialling out,1.388255000862884,False
+1,wrong,wrong,IV-type,1.3882060119640354,False
+1,boosted,boosted,partialling out,0.9944301203879924,True
+1,boosted,boosted,IV-type,1.0146565160386736,True
+2,right,right,partialling out,0.9917717083510704,True
+2,right,right,IV-type,0.9912565846841501,True
+2,wrong,right,partialling out,0.9796702827649185,True
+2,wrong,right,IV-type,0.9859485118567393,True
+2,right,wrong,partialling out,0.9109732804910305,False
+2,right,wrong,IV-type,0.9849965552305308,True
+2,wrong,wrong,partialling out,1.3302046414821642,False
+2,wrong,wrong,IV-type,1.3311697175319877,False
+2,boosted,boosted,partialling out,0.9695790704556136,False
+2,boosted,boosted,IV-type,0.992929967207861,True
+3,right,right,partialling out,1.0156254795348192,True
+3,right,right,IV-type,1.0150553698163958,True
+3,wrong,right,partialling out,1.0305320302636,True
+3,wrong,right,IV-type,1.0246310839207782,True
+3,right,wrong,partialling out,0.9090881450920844,False
+3,right,wrong,IV-type,1.000681884063945,True
+3,wrong,wrong,partialling out,1.4041697715271626,False
+3,wrong,wrong,IV-type,1.4025371117660461,False
+3,boosted,boosted,partialling out,0.9912680680918446,True
+3,boosted,boosted,IV-type,1.0191150936864166,True
+4,right,right,partialling out,1.0162191709089659,True
+4,right,right,IV-type,1.0166478334139597,True
+4,wrong,right,partialling out,1.0245266927997525,True
+4,wrong,right,IV-type,1.0176170298435876,True
+4,right,wrong,partialling out,0.9235354902903313,False
+4,right,wrong,IV-type,1.00938828334134,True
+4,wrong,wrong,partialling out,1.3996770037403736,False
+4,wrong,wrong,IV-type,1.40015205812613,False
+4,boosted,boosted,partialling out,1.0126102669870647,True
+4,boosted,boosted,IV-type,1.0299186068040747,True
+5,right,right,partialling out,0.9985057338775103,True
+5,right,right,IV-type,1.0001538577260836,True
+5,wrong,right,partialling out,1.025593573342682,True
+5,wrong,right,IV-type,1.0212652085624536,True
+5,right,wrong,partialling out,0.9335519484787077,False
+5,right,wrong,IV-type,0.995689209162078,True
+5,wrong,wrong,partialling out,1.3332774100910254,False
+5,wrong,wrong,IV-type,1.332143988038988,False
+5,boosted,boosted,partialling out,0.9897522207801764,True
+5,boosted,boosted,IV-type,1.002835346678765,True
+6,right,right,partialling out,1.0013603926629393,True
+6,right,right,IV-type,1.0014759005285216,True
+6,wrong,right,partialling out,0.9958413608807067,True
+6,wrong,right,IV-type,0.9969987974131966,True
+6,right,wrong,partialling out,0.9218406465700308,False
+6,right,wrong,IV-type,0.9961125321355236,True
+6,wrong,wrong,partialling out,1.3562496981408658,False
+6,wrong,wrong,IV-type,1.3568137349052016,False
+6,boosted,boosted,partialling out,0.9907581585944985,True
+6,boosted,boosted,IV-type,1.0104448344514732,True
+7,right,right,partialling out,1.0109720671179603,True
+7,right,right,IV-type,1.0114769659730352,True
+7,wrong,right,partialling out,1.0016694295723174,True
+7,wrong,right,IV-type,1.0065691844749383,True
+7,right,wrong,partialling out,0.9256572898044236,False
+7,right,wrong,IV-type,1.0014185301880634,True
+7,wrong,wrong,partialling out,1.3576622083657848,False
+7,wrong,wrong,IV-type,1.3580079266827483,False
+7,boosted,boosted,partialling out,0.97582791083906,True
+7,boosted,boosted,IV-type,1.019758408168961,True
+8,right,right,partialling out,1.009941374839256,True
+8,right,right,IV-type,1.0106209711050667,True
+8,wrong,right,partialling out,0.9866453644933755,True
+8,wrong,right,IV-type,0.9895878578215715,True
+8,right,wrong,partialling out,0.9168027861461647,False
+8,right,wrong,IV-type,1.0025746658349124,True
+8,wrong,wrong,partialling out,1.392293726011211,False
+8,wrong,wrong,IV-type,1.3954817502095493,False
+8,boosted,boosted,partialling out,1.0009233150268104,True
+8,boosted,boosted,IV-type,1.0123358465923706,True
+9,right,right,partialling out,1.0160026802326685,True
+9,right,right,IV-type,1.015944173426313,True
+9,wrong,right,partialling out,1.0059746086943049,True
+9,wrong,right,IV-type,1.0092521260263672,True
+9,right,wrong,partialling out,0.9367315297161515,False
+9,right,wrong,IV-type,1.0116370395894845,True
+9,wrong,wrong,partialling out,1.3725241482734232,False
+9,wrong,wrong,IV-type,1.3720143405481684,False
+9,boosted,boosted,partialling out,0.9807809543463829,True
+9,boosted,boosted,IV-type,1.0104727515962824,True
+10,right,right,partialling out,1.0153294027781135,True
+10,right,right,IV-type,1.016149033125215,True
+10,wrong,right,partialling out,1.0131323560317047,True
+10,wrong,right,IV-type,1.0201523601711773,True
+10,right,wrong,partialling out,0.9326482949874121,False
+10,right,wrong,IV-type,1.0115671639478618,True
+10,wrong,wrong,partialling out,1.3793763883971712,False
+10,wrong,wrong,IV-type,1.3781646867995065,False
+10,boosted,boosted,partialling out,1.0059515330389264,True
+10,boosted,boosted,IV-type,1.0273938921084462,True
+11,right,right,partialling out,0.9918865549239466,True
+11,right,right,IV-type,0.99065988147904,True
+11,wrong,right,partialling out,1.0053672253108221,True
+11,wrong,right,IV-type,1.0026104315003954,True
+11,right,wrong,partialling out,0.9051559766917388,False
+11,right,wrong,IV-type,0.9826137214245184,True
+11,wrong,wrong,partialling out,1.3606507736684943,False
+11,wrong,wrong,IV-type,1.3574673560924444,False
+11,boosted,boosted,partialling out,0.9837071774080843,True
+11,boosted,boosted,IV-type,0.9995099797756231,True
+12,right,right,partialling out,1.0093818695066579,True
+12,right,right,IV-type,1.008633645425945,True
+12,wrong,right,partialling out,1.0210957958185016,True
+12,wrong,right,IV-type,1.0200261966430495,True
+12,right,wrong,partialling out,0.9378995162910115,False
+12,right,wrong,IV-type,1.0038876765253977,True
+12,wrong,wrong,partialling out,1.3400794368671416,False
+12,wrong,wrong,IV-type,1.339544952471917,False
+12,boosted,boosted,partialling out,0.9998444845658028,True
+12,boosted,boosted,IV-type,1.0210126723284079,True
+13,right,right,partialling out,1.0075643887010637,True
+13,right,right,IV-type,1.0074761825978302,True
+13,wrong,right,partialling out,1.0180102268791429,True
+13,wrong,right,IV-type,1.0194932905044627,True
+13,right,wrong,partialling out,0.9097907899173043,False
+13,right,wrong,IV-type,0.9968641014156322,True
+13,wrong,wrong,partialling out,1.405121232594041,False
+13,wrong,wrong,IV-type,1.4047009338472134,False
+13,boosted,boosted,partialling out,0.9962544452840201,True
+13,boosted,boosted,IV-type,1.0022683556078977,True
+14,right,right,partialling out,0.9928336301535976,True
+14,right,right,IV-type,0.9937528861336848,True
+14,wrong,right,partialling out,0.9818849428048635,True
+14,wrong,right,IV-type,0.9823857124438402,True
+14,right,wrong,partialling out,0.9183873779268107,False
+14,right,wrong,IV-type,0.9893568147287732,True
+14,wrong,wrong,partialling out,1.337697255336515,False
+14,wrong,wrong,IV-type,1.3397246743888354,False
+14,boosted,boosted,partialling out,0.9759164971569123,True
+14,boosted,boosted,IV-type,0.9961250952966897,True
+15,right,right,partialling out,1.0139566775426931,True
+15,right,right,IV-type,1.0141950519275815,True
+15,wrong,right,partialling out,0.9846248926502889,True
+15,wrong,right,IV-type,0.9929495302600873,True
+15,right,wrong,partialling out,0.9328149433515934,False
+15,right,wrong,IV-type,1.0056149702535033,True
+15,wrong,wrong,partialling out,1.3299976155686017,False
+15,wrong,wrong,IV-type,1.3300898466100701,False
+15,boosted,boosted,partialling out,0.9778545393354215,True
+15,boosted,boosted,IV-type,1.0153702252692012,True
+16,right,right,partialling out,0.9978526893405778,True
+16,right,right,IV-type,0.9978574247693557,True
+16,wrong,right,partialling out,0.9781775803851437,True
+16,wrong,right,IV-type,0.9821708584456122,True
+16,right,wrong,partialling out,0.9221847325788797,False
+16,right,wrong,IV-type,0.9941489724302557,True
+16,wrong,wrong,partialling out,1.3356964841551373,False
+16,wrong,wrong,IV-type,1.3361414196631414,False
+16,boosted,boosted,partialling out,0.9818304598749243,True
+16,boosted,boosted,IV-type,0.9968072870385546,True
+17,right,right,partialling out,1.0009633749302975,True
+17,right,right,IV-type,1.00281501989019,True
+17,wrong,right,partialling out,1.0145254533499963,True
+17,wrong,right,IV-type,1.0123363095954954,True
+17,right,wrong,partialling out,0.9120579573038552,False
+17,right,wrong,IV-type,0.9894770165532425,True
+17,wrong,wrong,partialling out,1.3618049650058521,False
+17,wrong,wrong,IV-type,1.3642396075384224,False
+17,boosted,boosted,partialling out,0.9876539037851035,True
+17,boosted,boosted,IV-type,1.0148465428640399,True
+18,right,right,partialling out,1.0067926923257071,True
+18,right,right,IV-type,1.0066111488207792,True
+18,wrong,right,partialling out,1.0280099022029325,True
+18,wrong,right,IV-type,1.0235606986565648,True
+18,right,wrong,partialling out,0.9232540556619125,False
+18,right,wrong,IV-type,1.0017341925562495,True
+18,wrong,wrong,partialling out,1.3800449879456662,False
+18,wrong,wrong,IV-type,1.3796047348338476,False
+18,boosted,boosted,partialling out,0.9834708331785521,True
+18,boosted,boosted,IV-type,1.0022223390410958,True
+19,right,right,partialling out,1.0242631746180506,True
+19,right,right,IV-type,1.025119807227482,True
+19,wrong,right,partialling out,1.0323327045175177,True
+19,wrong,right,IV-type,1.0327545061709893,True
+19,right,wrong,partialling out,0.9521204450711133,False
+19,right,wrong,IV-type,1.0196026808664747,True
+19,wrong,wrong,partialling out,1.3685067190753155,False
+19,wrong,wrong,IV-type,1.3723046699421853,False
+19,boosted,boosted,partialling out,1.0131145128030072,True
+19,boosted,boosted,IV-type,1.0336573665388222,False
+20,right,right,partialling out,1.0025393985727118,True
+20,right,right,IV-type,1.0009783019447052,True
+20,wrong,right,partialling out,0.9801191006744385,True
+20,wrong,right,IV-type,0.9845869171503475,True
+20,right,wrong,partialling out,0.9292740616317536,False
+20,right,wrong,IV-type,0.9984892543017214,True
+20,wrong,wrong,partialling out,1.3367349137420588,False
+20,wrong,wrong,IV-type,1.3382593695463212,False
+20,boosted,boosted,partialling out,0.9691657839879182,False
+20,boosted,boosted,IV-type,1.0012763246996552,True
+21,right,right,partialling out,0.9836089932612347,True
+21,right,right,IV-type,0.9835075201622658,True
+21,wrong,right,partialling out,0.9861517351390261,True
+21,wrong,right,IV-type,0.9889172852093961,True
+21,right,wrong,partialling out,0.9038608913252234,False
+21,right,wrong,IV-type,0.9755898737224026,True
+21,wrong,wrong,partialling out,1.3398777886154538,False
+21,wrong,wrong,IV-type,1.3387220437380911,False
+21,boosted,boosted,partialling out,0.9769279772944852,True
+21,boosted,boosted,IV-type,0.9926705793121829,True
+22,right,right,partialling out,0.9963439500491473,True
+22,right,right,IV-type,0.9957726711426298,True
+22,wrong,right,partialling out,0.9990874967398556,True
+22,wrong,right,IV-type,0.9975914568995584,True
+22,right,wrong,partialling out,0.9231578116602526,False
+22,right,wrong,IV-type,0.99276489875479,True
+22,wrong,wrong,partialling out,1.3391445857989535,False
+22,wrong,wrong,IV-type,1.3405625291754835,False
+22,boosted,boosted,partialling out,0.9782037506561776,True
+22,boosted,boosted,IV-type,0.989534233868623,True
+23,right,right,partialling out,1.0070711947478062,True
+23,right,right,IV-type,1.0076991548815541,True
+23,wrong,right,partialling out,1.0138646965277451,True
+23,wrong,right,IV-type,1.015816364537697,True
+23,right,wrong,partialling out,0.9133848375471084,False
+23,right,wrong,IV-type,1.0005804052007976,True
+23,wrong,wrong,partialling out,1.3994049741945747,False
+23,wrong,wrong,IV-type,1.3990390578461027,False
+23,boosted,boosted,partialling out,0.996239633629437,True
+23,boosted,boosted,IV-type,1.018726973894364,True
+24,right,right,partialling out,0.9761411136327014,True
+24,right,right,IV-type,0.9758908647016836,True
+24,wrong,right,partialling out,0.9613179316237834,True
+24,wrong,right,IV-type,0.9625545969537298,True
+24,right,wrong,partialling out,0.8959878866811262,False
+24,right,wrong,IV-type,0.9697703174986843,False
+24,wrong,wrong,partialling out,1.3470813063793852,False
+24,wrong,wrong,IV-type,1.3459185239189404,False
+24,boosted,boosted,partialling out,0.9772827920288653,True
+24,boosted,boosted,IV-type,1.0054410590008065,True
+25,right,right,partialling out,0.9958379518451824,True
+25,right,right,IV-type,0.99611174109193,True
+25,wrong,right,partialling out,1.0084058938623868,True
+25,wrong,right,IV-type,1.0080046230734983,True
+25,right,wrong,partialling out,0.9235839282771994,False
+25,right,wrong,IV-type,0.9916034962086827,True
+25,wrong,wrong,partialling out,1.3330592604858253,False
+25,wrong,wrong,IV-type,1.3343044956292525,False
+25,boosted,boosted,partialling out,0.9681714626668698,False
+25,boosted,boosted,IV-type,0.9943074671666419,True
+26,right,right,partialling out,0.9903393168439731,True
+26,right,right,IV-type,0.9908971104742739,True
+26,wrong,right,partialling out,0.9831900734999919,True
+26,wrong,right,IV-type,0.9821605393672922,True
+26,right,wrong,partialling out,0.9091195154099091,False
+26,right,wrong,IV-type,0.986293986314431,True
+26,wrong,wrong,partialling out,1.352574022640895,False
+26,wrong,wrong,IV-type,1.3521204835832754,False
+26,boosted,boosted,partialling out,0.9674717948262045,False
+26,boosted,boosted,IV-type,0.9652202774888825,False
+27,right,right,partialling out,0.9966030712224833,True
+27,right,right,IV-type,0.997370373832676,True
+27,wrong,right,partialling out,0.9958044052124259,True
+27,wrong,right,IV-type,0.996582126476565,True
+27,right,wrong,partialling out,0.9173123242207596,False
+27,right,wrong,IV-type,0.9907271616569358,True
+27,wrong,wrong,partialling out,1.3481571987987082,False
+27,wrong,wrong,IV-type,1.349115410915873,False
+27,boosted,boosted,partialling out,0.9781138524842969,True
+27,boosted,boosted,IV-type,0.9946071307693015,True
+28,right,right,partialling out,0.9987286672702196,True
+28,right,right,IV-type,0.9995903330587059,True
+28,wrong,right,partialling out,0.9982468811817622,True
+28,wrong,right,IV-type,0.996643310511083,True
+28,right,wrong,partialling out,0.9111841442901354,False
+28,right,wrong,IV-type,0.9920309652965725,True
+28,wrong,wrong,partialling out,1.380237671725582,False
+28,wrong,wrong,IV-type,1.3794856330443972,False
+28,boosted,boosted,partialling out,1.0003620085084266,True
+28,boosted,boosted,IV-type,1.006762073980274,True
+29,right,right,partialling out,1.0132182083322594,True
+29,right,right,IV-type,1.0136767982756707,True
+29,wrong,right,partialling out,0.9899788341940259,True
+29,wrong,right,IV-type,0.9967503481863251,True
+29,right,wrong,partialling out,0.9422616207685826,False
+29,right,wrong,IV-type,1.0102672290354717,True
+29,wrong,wrong,partialling out,1.3343166752577034,False
+29,wrong,wrong,IV-type,1.337237360998849,False
+29,boosted,boosted,partialling out,0.988130396495392,True
+29,boosted,boosted,IV-type,1.0111572674508784,True

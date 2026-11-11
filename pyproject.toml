@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "drcurves"
+version = "0.1.0"
+description = "Doubly robust, partially pooled dose-response curves for continuous treatments"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = ["numpy", "scipy>=1.8", "pandas", "scikit-learn>=1.2"]
+
+[project.optional-dependencies]
+experiments = ["doubleml>=0.9", "matplotlib"]
+dev = ["pytest"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]

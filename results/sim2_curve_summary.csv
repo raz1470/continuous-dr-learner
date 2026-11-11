@@ -1,0 +1,16 @@
+outcome,gps,estimator,abs_bias,sd,rmse
+right,right,plugin,0.01,0.013,0.019
+right,right,ipw,0.036,0.06,0.083
+right,right,dr,0.006,0.028,0.03
+wrong,right,plugin,0.659,0.057,0.799
+wrong,right,ipw,0.036,0.06,0.083
+wrong,right,dr,0.078,0.067,0.139
+right,wrong,plugin,0.01,0.013,0.019
+right,wrong,ipw,0.349,0.066,0.404
+right,wrong,dr,0.003,0.028,0.03
+wrong,wrong,plugin,0.659,0.057,0.799
+wrong,wrong,ipw,0.349,0.066,0.404
+wrong,wrong,dr,0.345,0.062,0.406
+boosted,boosted,plugin,0.032,0.039,0.058
+boosted,boosted,ipw,0.392,0.238,0.668
+boosted,boosted,dr,0.088,0.1,0.156

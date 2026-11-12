@@ -16,6 +16,8 @@ from scipy.stats import gaussian_kde, norm
 from sklearn.base import BaseEstimator, clone
 from sklearn.ensemble import HistGradientBoostingRegressor
 from sklearn.model_selection import KFold, cross_val_predict
+from sklearn.ensemble import HistGradientBoostingClassifier
+import pandas as pd
 
 
 class GPS(BaseEstimator):
@@ -84,6 +86,41 @@ class GPS(BaseEstimator):
         return np.maximum(f / s, 1e-12)
 
 
+class DiscreteGPS(BaseEstimator):
+    """Generalised propensity score for a dose with a few distinct values
+    (tiers, counts such as notifications per week): a classifier's predicted
+    probability of each level. With a discrete dose, varpi/pi is a ratio of
+    probabilities, which is the right weight (a continuous density is not).
+    """
+
+    def __init__(self, classifier=None, floor=1e-4, random_state=0):
+        self.classifier = classifier
+        self.floor = floor
+        self.random_state = random_state
+
+    def fit(self, X, A):
+        A = np.asarray(A, float)
+        self.levels_ = np.unique(A)
+        clf = self.classifier if self.classifier is not None else HistGradientBoostingClassifier(
+            max_iter=200, learning_rate=0.05, random_state=self.random_state)
+        codes = np.searchsorted(self.levels_, A)
+        self.clf_ = clone(clf).fit(X, codes)
+        return self
+
+    def density(self, X, a):
+        a = np.asarray(a, float)
+        code = np.clip(np.searchsorted(self.levels_, a), 0, len(self.levels_) - 1)
+        left = np.clip(code - 1, 0, None)
+        code = np.where(np.abs(self.levels_[left] - a) < np.abs(self.levels_[code] - a), left, code)
+        proba = self.clf_.predict_proba(X)
+        col = {c: j for j, c in enumerate(self.clf_.classes_)}
+        out = np.full(len(a), self.floor)
+        for c, j in col.items():
+            hit = code == c
+            out[hit] = proba[hit, j]
+        return np.maximum(out, self.floor)
+
+
 @dataclass
 class Nuisances:
     mu: np.ndarray          # mu_hat(X_i, A_i)
@@ -96,51 +133,80 @@ def _feat(X, a):
     return np.column_stack([X, a])
 
 
-def cross_fit_nuisances(X, A, Y, outcome_model, gps: GPS, groups=None, n_folds=5,
-                        n_grid=60, n_ref=1000, random_state=0) -> Nuisances:
+def _folds(n, n_folds, fold_groups, random_state):
+    """Fold labels. Rows sharing a fold_groups id (e.g. a customer, or a
+    bootstrap duplicate of the same original row) always land in the same fold."""
+    rng = np.random.default_rng(random_state)
+    if fold_groups is None:
+        return rng.permutation(np.arange(n) % n_folds)
+    codes = pd.factorize(np.asarray(fold_groups))[0]
+    u = rng.permutation(codes.max() + 1)
+    return (u % n_folds)[codes]
+
+
+def _predict_chunked(fn, Xr, ar, chunk=200_000):
+    out = np.empty(len(ar))
+    for s in range(0, len(ar), chunk):
+        out[s:s + chunk] = fn(Xr[s:s + chunk], ar[s:s + chunk])
+    return out
+
+
+def cross_fit_nuisances(X, A, Y, outcome_model, gps, groups=None, n_folds=5,
+                        n_grid=60, n_ref=1000, max_ref_total=60_000, max_levels=30,
+                        fold_groups=None, random_state=0) -> Nuisances:
     """Cross-fit outcome model and GPS; return everything the pseudo-outcomes need.
 
-    ``groups`` (optional, length n) is the finest grouping level. When given, the
-    integrals over P(x) are taken *within* each group, so that regressing the
-    pseudo-outcome on (A, group) targets the group-specific curve
-    theta_g(a) = E[Y(a) | G = g].  The group should also be (encoded) in X so the
-    nuisance models can use it.
+    groups      : finest grouping level (length n). Integrals over P(x) are taken
+                  *within* each group, so regressing the pseudo-outcome on
+                  (A, group) targets theta_g(a) = E[Y(a) | G = g]. The group
+                  should also be (encoded) in X so the nuisance models can use it.
+    fold_groups : ids kept together in cross-fitting (e.g. customer id).
+    max_levels  : if A has at most this many distinct values it is treated as
+                  discrete: integrals are evaluated at those values exactly.
+    n_ref / max_ref_total : rows per group (and in total) used for the integrals.
+    Either model may be None, in which case its outputs are NaN.
     """
     X = np.asarray(X, float)
     A = np.asarray(A, float)
     Y = np.asarray(Y, float)
     n = len(Y)
-    g = np.zeros(n, int) if groups is None else np.unique(np.asarray(groups), return_inverse=True)[1]
+    g = np.zeros(n, int) if groups is None else pd.factorize(np.asarray(groups))[0]
     G = g.max() + 1
     rng = np.random.default_rng(random_state)
 
-    lo, hi = np.quantile(A, [0.001, 0.999])
-    a_grid = np.linspace(lo, hi, n_grid)
+    levels = np.unique(A)
+    if len(levels) <= max_levels:
+        a_grid = levels                       # discrete dose: exact evaluation points
+    else:
+        a_grid = np.linspace(*np.quantile(A, [0.001, 0.999]), n_grid)
+    J = len(a_grid)
 
-    # reference rows per group for the integrals (subsample big groups)
-    ref_idx = [rng.permutation(np.flatnonzero(g == k))[:n_ref] for k in range(G)]
+    # reference rows per group for the integrals (subsample big groups, cap total)
+    per_group = int(max(30, min(n_ref, max_ref_total // G)))
+    ref_idx = [rng.permutation(np.flatnonzero(g == k))[:per_group] for k in range(G)]
     ref_all = np.concatenate(ref_idx)
     ref_grp = np.concatenate([np.full(len(r), k) for k, r in enumerate(ref_idx)])
     counts = np.bincount(ref_grp, minlength=G)
-    Xr = np.repeat(X[ref_all], n_grid, axis=0)
+    Xr = np.repeat(X[ref_all], J, axis=0)
     ar = np.tile(a_grid, len(ref_all))
-    gr = np.repeat(ref_grp, n_grid)
-    jr = np.tile(np.arange(n_grid), len(ref_all))
+    gr = np.repeat(ref_grp, J)
+    jr = np.tile(np.arange(J), len(ref_all))
 
     mu = np.full(n, np.nan)
     pi = np.full(n, np.nan)
-    m_tab = np.zeros((G, n_grid))
-    w_tab = np.zeros((G, n_grid))
-    folds = KFold(n_folds, shuffle=True, random_state=random_state).split(X)
-    for tr, te in folds:
-        if outcome_model is not None:   # either model may be skipped (None)
+    m_tab = np.zeros((G, J))
+    w_tab = np.zeros((G, J))
+    fold = _folds(n, n_folds, fold_groups, random_state)
+    for k in range(n_folds):
+        tr, te = np.flatnonzero(fold != k), np.flatnonzero(fold == k)
+        if outcome_model is not None:
             om = clone(outcome_model).fit(_feat(X[tr], A[tr]), Y[tr])
             mu[te] = om.predict(_feat(X[te], A[te]))
-            np.add.at(m_tab, (gr, jr), om.predict(_feat(Xr, ar)))
+            np.add.at(m_tab, (gr, jr), _predict_chunked(lambda x, a: om.predict(_feat(x, a)), Xr, ar))
         if gps is not None:
             gm = clone(gps).fit(X[tr], A[tr])
             pi[te] = gm.density(X[te], A[te])
-            np.add.at(w_tab, (gr, jr), gm.density(Xr, ar))
+            np.add.at(w_tab, (gr, jr), _predict_chunked(gm.density, Xr, ar))
     m_tab /= (counts[:, None] * n_folds)
     w_tab /= (counts[:, None] * n_folds)
 

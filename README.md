@@ -20,25 +20,43 @@ DoubleML's partially linear model (`DoubleMLPLR`) is the usual tool for a contin
 ## Quick start
 
 ```python
+import numpy as np
 from sklearn.ensemble import HistGradientBoostingRegressor as HGB
-from drcurves import fit_dose_response, GPS
+from drcurves import fit_dose_response
+from drcurves.simulate import sim_hierarchical
 
-model = fit_dose_response(X, A, Y, outcome_model=HGB(), gps=GPS(),
-                          groups=df[["region", "store"]], pooling="partial")
-curve, se = model.curve(a_grid, ("north", "store_17"))     # store curve
-region, _ = model.curve(a_grid, ("north",))                 # region curve
-new, _    = model.curve(a_grid, ("north", "unseen_store"))  # falls back to region
+df, _, _ = sim_hierarchical(seed=0)                 # region, store, x0..x2, A, Y
+model = fit_dose_response(X=df[["x0", "x1", "x2"]], A=df["A"], Y=df["Y"],
+                          outcome_model=HGB(), groups=df[["region", "store"]])
+print(model.diagnostics())                          # read this first
+
+a_grid = np.linspace(*np.quantile(df["A"], [0.05, 0.95]), 50)
+curve, se = model.curve(a_grid, ("r0", "r0_s03"))   # store curve
+region, _ = model.curve(a_grid, ("r0",))            # region curve
+new, _    = model.curve(a_grid, ("r0", "unseen"))   # unseen store -> its region
 ```
+
+Inputs:
+- `X` can be an array or a DataFrame (non-numeric columns are integer-coded). Group codes are appended automatically (`add_group_codes=True`) so the nuisance models see the groups.
+- `A` with ≤ 30 distinct values (tiers, counts) is treated as discrete: `DiscreteGPS` (a classifier over the dose levels) is used automatically, because a continuous density is not a valid weight for a discrete dose.
+- A point mass in a continuous dose (e.g. many zeros) triggers a warning; model "any vs none" separately.
+- `fold_groups=` keeps ids (e.g. customers) together in cross-fitting; `cluster=` makes robust covariances cluster-robust.
+- NaN in `A`/`Y`/groups raises; NaN in `X` warns (use models that accept missing values).
+- Scale: the second stage uses a sparse solver above 300 coefficients; 2,000 stores × 2 levels fits in about 1.5 minutes on 2 cores. The integrals in the nuisance step use at most 60,000 reference rows in total.
+
+`model.diagnostics()` reports: weight quantiles, the cap, share capped and effective-sample-size share; the fitted dose range (outside it curves are flat extrapolations, and `curve()` warns); tuned penalties and the grid edges (a warning is raised if a penalty hits an edge); groups with a constant dose (they inherit their parent's curve).
 
 Grouping options:
 
 | Your data | `groups=` | What you get |
 |---|---|---|
 | One population / one store | `None` | One curve |
-| Groups with no hierarchy | `df[["store"]]` | One curve per store, shrunk toward the global curve |
+| Groups with no hierarchy | `df[["store"]]` (or `df["store"]`) | One curve per store, shrunk toward the global curve |
 | Nested hierarchy | `df[["region", "store"]]` (top → bottom) | Store curves shrunk toward their region, regions toward global |
 
-Each level must be nested in the one above; crossed factors (store × channel) are not supported. `pooling` is `"partial"` (default), `"none"` or `"complete"`.
+Each level must be nested in the one above; crossed factors (store × channel) are not supported. `pooling` is `"partial"` (default), `"none"` or `"complete"`. Shrinkage acts on each group's *shape*; its overall level is left nearly free, so very different baselines don't weaken the pooling of shapes.
+
+`path=None` under partial pooling is the global block, a shrinkage-weighted "typical group" curve, not the population average E[Y(a)]. For the population curve, fit with `groups=None`.
 
 ## Uncertainty
 
@@ -53,27 +71,31 @@ draws = model.draws(a_grid, path, n_draws=4000)             # curves for any oth
 ```
 
 - `centre=True` (on `curve`, `band`, `draws`) gives the curve's shape (minus its mean) with matching uncertainty. Use it when group baselines are not what you care about.
-- `cov_type`: `"robust_bayes"` (default) = heteroscedasticity-robust data term + the prior (penalty) term of the equivalent Bayesian model, so bands widen where smoothing/shrinkage biases the curve (as in `mgcv`; Marra & Wood 2012). `"bayes"` is the plain posterior covariance; `"sandwich"` ignores penalty bias and is overconfident under shrinkage.
+- `cov_type`: `"bayes"` (default) is the posterior covariance σ²(X′X+P)⁻¹ of the equivalent Bayesian model, as used by `mgcv`; its intervals widen where the penalty pulls the curve and have close to nominal coverage *averaged across the curve* (Marra & Wood 2012). `"robust_bayes"` swaps in a heteroscedasticity-robust data term (our own hybrid; it did slightly worse in the coverage study). `"sandwich"` ignores penalty bias and is overconfident under shrinkage.
 - `cluster=` (in `fit_dose_response`) makes the robust part cluster-robust, e.g. by customer when customers repeat. Don't cluster at the level whose curves you report.
 - `optimal_dose(...)["at_edge"]` is the share of draws whose optimum sits at the end of the grid. If it's large, the optimum may be outside your data.
-- `bootstrap_curves(...)` refits the whole pipeline on resampled rows (within each leaf group). It is the only option that includes nuisance-model uncertainty. Slow; use it to check a decision-driving number.
+- `bootstrap_curves(...)` refits the whole pipeline on resampled rows (within each leaf group; duplicates of a row stay in the same cross-fitting fold). It is the only option that includes nuisance-model uncertainty. The percentile band is pointwise, and it is centred on a smoothed estimate, so it does not capture smoothing bias. Slow; use it to check a decision-driving number. `X` must be numeric (`drcurves.prepare_X`).
 
 ### How honest are the 95% intervals?
 
 Monte Carlo coverage (`experiments/sim4_uncertainty.py`; share of 95% intervals containing the truth):
 
+Shape (centred curve) coverage; one curve: 42 replications of Sim 1, stores: 15 replications of Sim 3 (200 stores each).
+
 | Setting | Pointwise band | Simultaneous band | Dose contrast | Optimal dose |
 |---|---|---|---|---|
-| One curve, default (`robust_bayes`) | 95% | 88% | 100% | 100% |
+| One curve, default (`bayes`) | 95% | 88% | 100% | 98% |
+| One curve, `robust_bayes` | 95% | 88% | 100% | 100% |
 | One curve, `sandwich` | 94% | 86% | 100% | 100% |
-| 200 stores, default | 84% | 70% | 90% | 94% |
-| 200 stores, `sandwich` | 64% | 34% | 73% | 78% |
-| Stores with < 25 obs, default | 89% | 79% | 93% | 94% |
-| Stores with 150+ obs, default | 80% | 60% | 87% | 95% |
+| 200 stores, default (`bayes`) | 88% | 78% | 92% | 95% |
+| 200 stores, `robust_bayes` | 87% | 74% | 91% | 96% |
+| 200 stores, `sandwich` | 64% | 34% | 72% | 78% |
+| Stores with < 25 obs, default | 90% | 82% | 93% | 94% |
+| Stores with 150+ obs, default | 84% | 69% | 90% | 97% |
 
 Read these as follows:
-- For one curve the defaults are close to nominal. Only the simultaneous band is a bit short.
-- With many shrunk curves, the default bands are much better than a sandwich but still below 95%. Coverage *falls* as stores get bigger: bands shrink with data, but a small bias from the nuisance models doesn't.
+- For one curve the defaults are close to nominal; the simultaneous band is a bit short and contrast intervals are conservative.
+- With many shrunk curves, the default bands are much better than a sandwich but still below 95%. Coverage falls as stores get bigger; a plausible reason (not isolated by the simulation) is a small bias from the nuisance models that stays while the band narrows.
 - For decisions, prefer `level=0.99`, or check the key number with `bootstrap_curves`.
 
 ## Layout

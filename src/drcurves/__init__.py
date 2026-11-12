@@ -1,31 +1,137 @@
 """Doubly robust, nonlinear, hierarchically pooled dose-response curves."""
-from .nuisance import GPS, Nuisances, cross_fit_nuisances, pseudo_outcomes
+import warnings
+
+import numpy as np
+import pandas as pd
+
+from .nuisance import GPS, DiscreteGPS, Nuisances, cross_fit_nuisances, pseudo_outcomes
 from .pooled import HierarchicalDoseResponse
 from .bootstrap import bootstrap_curves
 
-__all__ = ["GPS", "Nuisances", "cross_fit_nuisances", "pseudo_outcomes",
-           "HierarchicalDoseResponse", "fit_dose_response", "bootstrap_curves"]
+__all__ = ["GPS", "DiscreteGPS", "Nuisances", "cross_fit_nuisances", "pseudo_outcomes",
+           "HierarchicalDoseResponse", "fit_dose_response", "bootstrap_curves", "prepare_X"]
+
+
+def prepare_X(X, groups=None, add_group_codes=True):
+    """Numeric feature matrix for the nuisance models.
+
+    DataFrame columns of dtype object/category/bool are integer-coded. With
+    add_group_codes, one integer code per hierarchy level is appended so the
+    nuisance models can learn group effects (tree models split on codes fine;
+    pass categorical_features to HistGradientBoosting for native handling,
+    which is limited to 255 levels).
+    """
+    if isinstance(X, pd.DataFrame):
+        cols = []
+        for c in X.columns:
+            col = X[c]
+            if not pd.api.types.is_numeric_dtype(col) or pd.api.types.is_bool_dtype(col):
+                cols.append(pd.factorize(col)[0].astype(float))
+            else:
+                cols.append(col.to_numpy(float))
+        Xn = np.column_stack(cols) if cols else np.empty((len(X), 0))
+    else:
+        Xn = np.asarray(X, float)
+        if Xn.ndim == 1:
+            Xn = Xn[:, None]
+    if groups is not None and add_group_codes:
+        g = groups.to_frame() if isinstance(groups, pd.Series) else pd.DataFrame(groups)
+        codes = [pd.factorize(g.iloc[:, : l + 1].astype(str).agg("|".join, axis=1))[0]
+                 for l in range(g.shape[1])]
+        Xn = np.column_stack([np.column_stack(codes).astype(float), Xn])
+    if np.isnan(Xn).any():
+        warnings.warn("X contains NaN: use nuisance models that accept missing values "
+                      "(HistGradientBoosting does).", stacklevel=2)
+    return Xn
+
+
+def _check_dose(A, max_levels):
+    A = np.asarray(A, float)
+    if not np.all(np.isfinite(A)):
+        raise ValueError("A (the dose) must be finite.")
+    vals, counts = np.unique(A, return_counts=True)
+    discrete = len(vals) <= max_levels
+    top = counts.max() / len(A)
+    if not discrete and top > 0.05:
+        v = vals[np.argmax(counts)]
+        warnings.warn(f"{top:.0%} of doses equal {v:g}: a point mass the continuous GPS cannot "
+                      "represent (e.g. zero spend). Weights near that value are unreliable; "
+                      "consider modelling 'any dose' separately or analysing A > 0 only.",
+                      stacklevel=3)
+    return discrete
 
 
 def fit_dose_response(X, A, Y, outcome_model, gps=None, groups=None, pooling="partial",
-                      n_folds=5, n_basis=10, cluster=None, cov_type="robust_bayes",
-                      random_state=0):
-    """One-call pipeline: cross-fitted nuisances -> DR pseudo-outcomes -> pooled splines.
+                      n_folds=5, n_basis=10, cluster=None, fold_groups=None,
+                      cov_type="bayes", max_weight_quantile=0.99, add_group_codes=True,
+                      max_levels=30, random_state=0):
+    """One call: cross-fitted nuisances -> DR pseudo-outcomes -> pooled splines.
 
-    groups : pandas DataFrame with one column per hierarchy level, top -> bottom
-             (e.g. ["region", "store"]); a single column for flat groups with no
-             hierarchy (each shrunk toward the global curve); or None for one
-             population curve.
-    cluster : optional cluster ids for the covariance (see HierarchicalDoseResponse.fit).
-    cov_type : "robust_bayes" (default), "bayes" or "sandwich".
+    X        : covariates (array or DataFrame; categorical columns are coded).
+    A, Y     : dose and outcome.
+    groups   : None (one population curve); a DataFrame with one column (flat
+               groups, each shrunk toward the global curve); or several columns
+               top -> bottom (e.g. ["region", "store"]). Levels must be nested.
+    gps      : None picks DiscreteGPS when A has <= max_levels distinct values,
+               otherwise the continuous GPS.
+    cluster  : cluster ids for the robust covariance types.
+    fold_groups : ids kept together in cross-fitting (e.g. customer id).
+    cov_type : "bayes" (default), "robust_bayes" or "sandwich".
+    Returns a fitted HierarchicalDoseResponse with .nuisances_, .pseudo_outcomes_
+    and .diagnostics().
     """
-    gps = GPS(random_state=random_state) if gps is None else gps
-    leaf = None if groups is None else groups.astype(str).agg("/".join, axis=1).to_numpy()
-    nuis = cross_fit_nuisances(X, A, Y, outcome_model, gps, groups=leaf,
-                               n_folds=n_folds, random_state=random_state)
-    xi = pseudo_outcomes(nuis, Y, kind="dr")
+    Y = np.asarray(Y, float)
+    if not np.all(np.isfinite(Y)):
+        raise ValueError("Y must be finite (found NaN or inf).")
+    if groups is not None:
+        groups = groups.to_frame() if isinstance(groups, pd.Series) else pd.DataFrame(groups)
+        groups = groups.reset_index(drop=True)
+    discrete = _check_dose(A, max_levels)
+    if gps is None:
+        gps = DiscreteGPS(random_state=random_state) if discrete else GPS(random_state=random_state)
+    elif discrete and isinstance(gps, GPS):
+        warnings.warn(f"A has only {len(np.unique(A))} distinct values; a continuous GPS is not "
+                      "a valid density for it. Use DiscreteGPS (the default when gps=None).",
+                      stacklevel=2)
+    Xn = prepare_X(X, groups, add_group_codes)
+    A = np.asarray(A, float)
+    leaf = None if groups is None else groups.astype(str).agg("\x1f".join, axis=1).to_numpy()
+    nuis = cross_fit_nuisances(Xn, A, Y, outcome_model, gps, groups=leaf, n_folds=n_folds,
+                               max_levels=max_levels, fold_groups=fold_groups,
+                               random_state=random_state)
+    xi = pseudo_outcomes(nuis, Y, kind="dr", max_weight_quantile=max_weight_quantile)
     model = HierarchicalDoseResponse(n_basis=n_basis, pooling=pooling, cov_type=cov_type).fit(
         A, xi, groups, cluster=cluster)
     model.nuisances_ = nuis
     model.pseudo_outcomes_ = xi
+    model._diag_data = (A, leaf, max_weight_quantile)
+    model.diagnostics = lambda: _diagnostics(model)
     return model
+
+
+def _diagnostics(model):
+    """Overlap and fit checks worth reading before trusting the curves."""
+    A, leaf, q = model._diag_data
+    nuis = model.nuisances_
+    w = nuis.varpi / nuis.pi
+    cap = np.quantile(w, q) if q is not None else np.inf
+    wc = np.minimum(w, cap)                       # the weights actually used
+    out = {
+        "weights": {"median": float(np.median(w)), "p99": float(np.quantile(w, 0.99)),
+                    "max_raw": float(w.max()), "cap": float(cap),
+                    "share_capped": float(np.mean(w > cap)),
+                    # effective sample size of the capped weights, as a share of n
+                    "ess_share": float(wc.sum() ** 2 / (wc ** 2).sum() / len(wc))},
+        "dose_range_fitted": (float(model.lo_), float(model.hi_)),
+        "penalties": {"smooth": float(model.lam_smooth_),
+                      "levels": [float(v) for v in model.lam_levels_],
+                      "grid_edges": (float(model.lam_grid.min()), float(model.lam_grid.max()))},
+        "edf": float(model.edf_),
+    }
+    if leaf is not None:
+        df = pd.DataFrame({"g": leaf, "A": A})
+        stats = df.groupby("g").A.agg(n="size", iqr=lambda v: np.subtract(*np.quantile(v, [.75, .25])))
+        out["groups"] = {"n_groups": int(len(stats)), "min_rows": int(stats.n.min()),
+                         "groups_with_constant_dose": [k.replace("\x1f", "/")
+                                                       for k in stats.index[stats.iqr == 0]][:20]}
+    return out

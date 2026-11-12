@@ -17,7 +17,7 @@ from .pooled import HierarchicalDoseResponse
 def _resample(n, groups, stratify, rng):
     if groups is None or not stratify:
         return rng.integers(0, n, n)
-    leaf = groups.astype(str).agg("/".join, axis=1).to_numpy()
+    leaf = groups.astype(str).agg("\x1f".join, axis=1).to_numpy()
     idx = []
     for g in pd.unique(leaf):
         rows = np.flatnonzero(leaf == g)
@@ -38,6 +38,9 @@ def bootstrap_curves(X, A, Y, outcome_model, gps, a_grid, paths=(None,), groups=
     Rows are resampled within each leaf group, so every group appears in every
     replicate and its curve stays defined.
 
+    X must already be numeric (see drcurves.prepare_X). The percentile band is
+    pointwise; use the stored draws for any other summary.
+
     Returns {path: {"est", "lo", "hi", "draws"}}.
     """
     X, A, Y = np.asarray(X, float), np.asarray(A, float), np.asarray(Y, float)
@@ -45,7 +48,7 @@ def bootstrap_curves(X, A, Y, outcome_model, gps, a_grid, paths=(None,), groups=
     rng = np.random.default_rng(random_state)
     if groups is not None:
         groups = pd.DataFrame(groups).reset_index(drop=True)
-    leaf = None if groups is None else groups.astype(str).agg("/".join, axis=1).to_numpy()
+    leaf = None if groups is None else groups.astype(str).agg("\x1f".join, axis=1).to_numpy()
 
     nuis = cross_fit_nuisances(X, A, Y, outcome_model, gps, groups=leaf, n_folds=n_folds,
                                random_state=random_state)
@@ -60,8 +63,10 @@ def bootstrap_curves(X, A, Y, outcome_model, gps, a_grid, paths=(None,), groups=
         g_b = None if groups is None else groups.iloc[idx].reset_index(drop=True)
         if refit_nuisances:
             leaf_b = None if leaf is None else leaf[idx]
+            # duplicates of one original row stay in the same fold (no leakage)
             nb = cross_fit_nuisances(X[idx], A[idx], Y[idx], outcome_model, gps, groups=leaf_b,
-                                     n_folds=n_folds, random_state=random_state + b + 1)
+                                     n_folds=n_folds, fold_groups=idx,
+                                     random_state=random_state + b + 1)
             xi_b = pseudo_outcomes(nb, Y[idx])
         else:
             xi_b = xi[idx]

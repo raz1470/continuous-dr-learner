@@ -115,3 +115,62 @@ def test_bootstrap_runs():
     g = np.linspace(-1, 1, 10)
     out = bootstrap_curves(X, A, Y, LinearRegression(), gps, g, n_boot=4, n_folds=2)
     assert out[None]["draws"].shape == (4, 10) and np.all(out[None]["lo"] <= out[None]["hi"])
+
+
+# ---------------------------------------------------------------- real-data robustness
+def test_discrete_dose_uses_discrete_gps_and_recovers_curve():
+    from drcurves import DiscreteGPS
+    rng = np.random.default_rng(5)
+    n = 4000
+    X = rng.normal(size=(n, 2))
+    # notifications per week, 0..8, more for engaged users (confounded)
+    A = np.clip(np.round(3 + 1.2 * X[:, 0] + rng.normal(size=n) * 1.5), 0, 8)
+    f = lambda a: 1.2 * a - 0.15 * a ** 2                      # noqa: E731  (peak at 4)
+    Y = f(A) + 1.5 * X[:, 0] + rng.normal(size=n)
+    om = make_pipeline(PolynomialFeatures(2), LinearRegression())
+    m = fit_dose_response(X, A, Y, outcome_model=om)
+    assert isinstance(m.nuisances_, object)
+    g = np.arange(1, 8, dtype=float)
+    est, _ = m.curve(g)
+    t = f(g)
+    assert np.sqrt(np.mean(((est - est.mean()) - (t - t.mean())) ** 2)) < 0.3
+    opt = m.optimal_dose(np.linspace(1, 7, 61))
+    assert opt["lo"] <= 4.0 <= opt["hi"]
+
+
+def test_dataframe_inputs_series_groups_and_odd_names():
+    rng = np.random.default_rng(6)
+    n = 1500
+    df = pd.DataFrame({"x": rng.normal(size=n), "segment": rng.choice(["a", "b", "c"], n),
+                       "store": rng.choice(["north/1", "north/2", "south/1"], n)})
+    df["A"] = 0.4 * df.x + rng.normal(size=n)
+    df["Y"] = np.sin(df.A) + df.x + rng.normal(size=n)
+    m = fit_dose_response(df[["x", "segment"]], df.A, df.Y,
+                          outcome_model=make_pipeline(PolynomialFeatures(2), LinearRegression()),
+                          gps=GPS(mean_model=LinearRegression(), heteroscedastic=False),
+                          groups=df["store"], fold_groups=rng.integers(0, 300, n))
+    e1, _ = m.curve([0.0], ("north/1",))
+    e2, _ = m.curve([0.0], ("north/2",))
+    assert np.isfinite(e1).all() and np.isfinite(e2).all()
+    d = m.diagnostics()
+    assert d["groups"]["n_groups"] == 3 and 0 < d["weights"]["ess_share"] <= 1
+
+
+def test_nan_outcome_raises():
+    import pytest
+    X, A, Y = _data(n=300)
+    Y[3] = np.nan
+    with pytest.raises(ValueError):
+        fit_dose_response(X, A, Y, outcome_model=LinearRegression())
+
+
+def test_many_groups_sparse_path():
+    rng = np.random.default_rng(7)
+    S = 1500
+    st = rng.integers(0, S, S * 20)
+    a = rng.normal(size=len(st))
+    y = np.sin(a) + rng.normal(size=len(st))
+    m = HierarchicalDoseResponse().fit(a, y, pd.DataFrame({"r": st % 15, "s": st}))
+    assert m.p_ > m.dense_max
+    est, se = m.curve(np.linspace(-1, 1, 5), (3, 18))
+    assert np.all(np.isfinite(est)) and np.all(se > 0)

@@ -52,9 +52,9 @@ def covcls(v):
 
 
 cov_rows = []
-for label, ct, src in [("One curve: default bands", "robust_bayes", "a"),
+for label, ct, src in [("One curve: default (Bayesian)", "bayes", "a"),
                        ("One curve: plain sandwich", "sandwich", "a"),
-                       ("200 stores: default bands", "robust_bayes", "b"),
+                       ("200 stores: default (Bayesian)", "bayes", "b"),
                        ("200 stores: plain sandwich", "sandwich", "b")]:
     r = s4a.loc[ct] if src == "a" else s4b.loc[(ct, "all")]
     cells = "".join(f"<td class='num {covcls(r[c])}'>{pct(r[c])}</td>"
@@ -62,11 +62,11 @@ for label, ct, src in [("One curve: default bands", "robust_bayes", "a"),
     cov_rows.append(f"<tr><td>{label}</td>{cells}</tr>")
 table4 = ("<table class='dtable'><caption>Share of 95% intervals that contain the truth. One curve: "
           f"{N_REPS4A} replications of the Sim 1 data. Stores: {N_REPS4B} replications of the Sim 3 data, "
-          "averaged over all 200 stores.</caption><thead><tr><th>Setting</th><th class='num'>Pointwise band</th>"
-          "<th class='num'>Simultaneous band</th><th class='num'>Dose contrast</th>"
+          "averaged over all 200 stores.</caption><thead><tr><th>Setting</th><th class='num'>Shape: pointwise band</th>"
+          "<th class='num'>Shape: simultaneous band</th><th class='num'>Dose contrast</th>"
           "<th class='num'>Optimal dose</th></tr></thead><tbody>" + "".join(cov_rows) + "</tbody></table>")
-big4 = s4b.loc[("robust_bayes", "150+")]
-small4 = s4b.loc[("robust_bayes", "<25")]
+big4 = s4b.loc[("bayes", "150+")]
+small4 = s4b.loc[("bayes", "<25")]
 
 
 def c2(om, gm, est, col="abs_bias"):
@@ -128,7 +128,7 @@ def cov(c):
 
 
 rowsp = []
-for om, gm, title, _ in SC:
+for om, gm, title, _ in SC + [("boosted", "boosted", "Both boosted (practice)", "")]:
     a, b = p2("partialling out", om, gm), p2("IV-type", om, gm)
     ca, cb = p2("partialling out", om, gm, "coverage"), p2("IV-type", om, gm, "coverage")
     rowsp.append(f"<tr><td>{title.replace('GPS', 'Treatment model')}</td>"
@@ -213,7 +213,7 @@ select {{ font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px so
 
 <header class="hdr">
   <h1>Continuous Treatments Need Curves, Not Coefficients</h1>
-  <p class="tagline">Three simulations on where double machine learning's partially linear model falls short for continuous treatments, and a doubly robust, partially pooled alternative.</p>
+  <p class="tagline">Where double machine learning's partially linear model falls short for continuous treatments, a doubly robust and partially pooled alternative, and how far to trust its intervals.</p>
   <p class="byline">Ryan O'Sullivan · Code on <a href="{REPO}" style="color:#cbd5e1">GitHub</a></p>
 </header>
 
@@ -223,6 +223,7 @@ select {{ font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px so
   <a href="#robust">3 · Robustness</a>
   <a href="#many">4 · Many curves</a>
   <a href="#method">5 · In practice</a>
+  <a href="#limits">Limits</a>
   <a href="#faq">Questions</a>
   <a href="#together">Conclusion</a>
 </nav>
@@ -239,7 +240,7 @@ select {{ font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px so
   <li><strong>It gives one answer per population.</strong> If you need a curve for each of 200 stores, you loop, and the small stores get noise.</li>
 </ul>
 
-<p>This article runs one simulation per limitation and shows an estimator that addresses all three: the doubly robust dose-response estimator of <a href="https://arxiv.org/abs/1507.00747" target="_blank" rel="noopener">Kennedy et al. (2017)</a>, with a second stage that partially pools curves across a hierarchy.</p>
+<p>This article runs one simulation per limitation, plus a fourth on uncertainty, and shows an estimator that addresses all three: the doubly robust dose-response estimator of <a href="https://arxiv.org/abs/1507.00747" target="_blank" rel="noopener">Kennedy et al. (2017)</a>, with a second stage that partially pools curves across a hierarchy.</p>
 
 <!-- 1 -->
 <section id="plr">
@@ -249,7 +250,7 @@ select {{ font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px so
 
   <div class="eqn">Y = θD + g(X) + ε</div>
 
-  <p>where D is the treatment, X the confounders and g(X) is learned with any machine learning model. Cross-fitting and an orthogonal score remove the regularisation bias from g, so θ comes with a valid confidence interval. The cost is the θD term: the effect of every extra unit of treatment is the same, wherever you start.</p>
+  <p>where D is the treatment, X the confounders and g(X) is learned with any machine learning model. Models like g, which we need but do not care about for their own sake, are called nuisance models. Cross-fitting (each row's predictions come from models trained on other rows) and an orthogonal score (an estimating equation that is insensitive to small errors in the nuisance models) remove the regularisation bias from g, so θ comes with a valid confidence interval. The cost is the θD term: the effect of every extra unit of treatment is the same, wherever you start.</p>
 
   <p>When the truth is a curve f(D), θ still converges to something. If the treatment is roughly normal given X, it is a weighted average of the curve's slope (a consequence of Stein's lemma):</p>
 
@@ -288,7 +289,7 @@ select {{ font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px so
 
   <p>Either way, the decision you need to make (how much, and where to stop) lives in the curvature. A linear model removes the curvature by assumption.</p>
 
-  <p>The simulation draws 4,000 units with five confounders. The dose depends on the confounders through nonlinear functions with a variance that changes across units, and the outcome depends on the same confounders. The true effect is an inverted U in one dataset and a saturating curve in the other. Both methods use the same gradient boosting models for every nuisance function.</p>
+  <p>The simulation draws 4,000 units with five covariates. Three of them drive the dose through nonlinear functions, a fourth changes how much the dose varies between units, and the first three also drive the outcome, so they confound the effect. The true effect is an inverted U in one dataset and a saturating curve in the other. Both methods use the same gradient boosting models for every nuisance function.</p>
 
   <div class="fig">
     <div class="fig-hdr">
@@ -299,7 +300,7 @@ select {{ font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px so
     <p class="fig-cap">The DoubleML line is θ times the dose, drawn through the middle of the truth. Bands are pointwise 95% intervals.</p>
   </div>
 
-  <p>The DR curve follows both shapes (average error {inv.dr_curve_rmse:.2f} and {sat.dr_curve_rmse:.2f}, against {inv.plr_line_rmse:.2f} and {sat.plr_line_rmse:.2f} for the DoubleML line). DoubleML's θ is not wrong: {inv.plr_theta:.2f} is close to the average slope of the inverted U across these units ({inv.true_avg_derivative:.2f}). It is the right answer to a question you probably did not mean to ask. It says nothing about where the curve turns over, and in the saturating case it gives every unit the same marginal return, when units at high doses get almost none.</p>
+  <p>The DR curve follows both shapes (root mean squared error of the centred curve {inv.dr_curve_rmse:.2f} and {sat.dr_curve_rmse:.2f}, against {inv.plr_line_rmse:.2f} and {sat.plr_line_rmse:.2f} for the DoubleML line). DoubleML's θ is not wrong: {inv.plr_theta:.2f} is in the neighbourhood of the plain average slope of the inverted U across these units ({inv.true_avg_derivative:.2f}). It is not equal to it, because θ weights each unit by how much its dose varies. It is the right answer to a question you probably did not mean to ask. It says nothing about where the curve turns over, and in the saturating case it gives every unit the same marginal return, when units at high doses get almost none.</p>
 
   <h3>θ depends on the treatment policy</h3>
 
@@ -331,7 +332,7 @@ select {{ font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px so
 
   <div class="dtable-wrap">{tablep}</div>
 
-  <p>With the default score, a wrong treatment model biases θ by {f2(p2('partialling out','right','wrong'), True)}. That looks small, but the intervals contain the truth in {pct(p2('partialling out','right','wrong','coverage'))} of replications, even though the outcome model is correct. The partialling-out score is only protected against errors in the outcome model. The IV-type score is doubly robust: bias {f2(p2('IV-type','right','wrong'), True)} and {pct(p2('IV-type','right','wrong','coverage'))} coverage in the same row. So DoubleML can give you double robustness if you change the score away from the default. What it cannot give you is a doubly robust curve: the robustness is for θ, the single slope from section 2.</p>
+  <p>With the default score, a wrong treatment model biases θ by {f2(p2('partialling out','right','wrong'), True)}. That looks small, but the intervals contain the truth in {pct(p2('partialling out','right','wrong','coverage'))} of replications, even though the outcome model is correct. The partialling-out score is only protected against errors in the outcome model. The IV-type score is doubly robust: bias {f2(p2('IV-type','right','wrong'), True)} and {pct(p2('IV-type','right','wrong','coverage'))} coverage in the same row. So DoubleML can give you double robustness if you change the score away from the default. What it cannot give you is a doubly robust curve: the robustness is for θ, the single slope from section 2. The last row, with boosted models for both, shows the same pattern in practice: {pct(p2('partialling out','boosted','boosted','coverage'))} coverage with the default score against {pct(p2('IV-type','boosted','boosted','coverage'))} with IV-type.</p>
 
   <h3>The curve</h3>
 
@@ -362,7 +363,7 @@ select {{ font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px so
 
   <p>Double robustness is about bias, not noise. When the outcome model is badly wrong the residuals are large, and multiplying them by inverse density weights makes the DR curve vary more between datasets (sd {c2('wrong','right','dr','sd'):.2f} against {c2('right','right','dr','sd'):.2f} when both are right). <a href="https://projecteuclid.org/journals/statistical-science/volume-22/issue-4/Demystifying-Double-Robustness--A-Comparison-of-Alternative-Strategies-for/10.1214/07-STS227.full" target="_blank" rel="noopener">Kang and Schafer (2007)</a> made the same point for binary treatments: when the weights are extreme, DR can do worse than a good regression.</p>
 
-  <p>The last row is what you would do in practice: boosted models for both. Here plug-in is the most accurate ({c2('boosted','boosted','plugin'):.2f}), DR is close behind ({c2('boosted','boosted','dr'):.2f}) and IPW is far worse ({c2('boosted','boosted','ipw'):.2f}), because a boosted density is a hard thing to get right in the tails. That is the honest trade. When the outcome model happens to be good, DR pays a little variance for insurance you did not need. You do not know in advance which situation you are in, and the insurance pays out when it matters.</p>
+  <p>The last row is what you would do in practice: boosted models for both. Here plug-in clearly wins: error {c2('boosted','boosted','plugin'):.2f} against {c2('boosted','boosted','dr'):.2f} for DR, and IPW is far behind at {c2('boosted','boosted','ipw'):.2f}. When both nuisance models are good but not perfect, DR adds the product of their errors back in, and with an imperfect boosted density that product is not small. This is the Kang and Schafer point again: double robustness is insurance against one model being badly wrong, and it has a cost when neither is. You rarely know in advance which situation you are in. If you trust your outcome model much more than your density model, report the plug-in curve alongside DR, and treat a large gap between them as a warning.</p>
 </section>
 
 <!-- 4 -->
@@ -372,17 +373,17 @@ select {{ font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px so
 
   <p>The decision is rarely one curve for the whole business. Pricing teams set discounts by category, marketing teams set budgets by country and channel, CRM teams set cadence by segment. The groups are nested (stores in regions, products in categories, campaigns in channels), and their sizes follow a long tail: a few big ones with plenty of data and many small ones with very little.</p>
 
-  <p>Two simple options both fail on that long tail. One curve for everyone (complete pooling) ignores real differences between groups. A separate model per group (no pooling, which is what looping DoubleML over categories amounts to) treats a store with 12 observations as if it knew as much as one with 500.</p>
+  <p>Two simple options both fail on that long tail. One curve for everyone (complete pooling) ignores real differences between groups. A separate curve per group (no pooling) treats a store with 12 observations as if it knew as much as one with 500. Looping DoubleML over categories has the same problem and is worse, because it also refits the nuisance models on each store's handful of rows.</p>
 
   <p>Partial pooling sits between them. Each store's curve is the global curve, plus a regional deviation, plus a store deviation:</p>
 
   <div class="eqn">θ<sub>store</sub>(a) = B(a)′ ( β<sub>global</sub> + b<sub>region</sub> + b<sub>store</sub> )</div>
 
-  <p>B(a) is a set of spline basis functions. The deviations get a ridge penalty, which is the same as treating them as random effects. A small store's deviation is shrunk toward its region, and a region's toward the global curve. A big store has enough data to overrule the shrinkage. How strongly to shrink at each level is chosen from the data by generalised cross-validation, so you do not set it by hand.</p>
+  <p>B(a) is a set of spline basis functions. The deviations get a ridge penalty, which is the same as treating them as random effects. A small store's deviation is shrunk toward its region, and a region's toward the global curve. The penalty applies to each group's shape; its overall level is left almost free, so stores with very different baselines can still share a shape. A big store has enough data to overrule the shrinkage. How strongly to shrink at each level is chosen from the data by generalised cross-validation (GCV, a fast approximation to leave-one-out error), so you do not set it by hand.</p>
 
   <p>Because the DR pseudo-outcome is just a number per row, this second stage can be any regression. The DR step handles confounding; the pooling step handles the hierarchy. For store-level curves, the averages inside m(a) and ϖ(a) are taken within each store.</p>
 
-  <p>The simulation has 8 regions with 25 stores each. Store sizes are log-normal, from 8 to several hundred observations, and each store's true curve is the inverted U plus a random regional and store deviation. Store policy also affects both the dose and the outcome, so there is store-level confounding to remove.</p>
+  <p>The simulation has 8 regions with 25 stores each. Store sizes are log-normal, from 8 to several hundred observations, and each store's true curve is the inverted U plus a random regional and store deviation. Each store also has its own baseline, which raises both its doses and its outcomes, so there is store-level confounding to remove.</p>
 
   <div class="fig">
     <div class="fig-hdr">
@@ -419,7 +420,7 @@ select {{ font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px so
 
   <h3>Looping DoubleML over stores</h3>
 
-  <p>For comparison, one DoubleMLPLR was fitted per store, the usual workaround. Each gives a slope, so the comparison point is each store's true average slope across the dose range (grey band: middle 90% of true store slopes).</p>
+  <p>For comparison, one DoubleMLPLR was fitted per store, the usual workaround. In the smallest stores that means boosted nuisance models fitted on a few dozen rows or fewer with two folds, so treat this as what the workaround gives you, not as DoubleML at its best. Each gives a slope, so the comparison point is each store's true average slope across the dose range (grey band: middle 90% of true store slopes).</p>
 
   <div class="fig">
     <div class="fig-hdr">
@@ -437,29 +438,33 @@ select {{ font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px so
 <section id="method">
   <h2>5. Using it</h2>
 
-  <p>The companion repo wraps the three steps in one call. The groups argument takes one column per level of the hierarchy, top to bottom.</p>
+  <p>The companion repo wraps the three steps in one call. This runs as written, on the store data from section 4:</p>
 
-<pre><code>from sklearn.ensemble import HistGradientBoostingRegressor as HGB
-from drcurves import fit_dose_response, GPS
+<pre><code>import numpy as np
+from sklearn.ensemble import HistGradientBoostingRegressor as HGB
+from drcurves import fit_dose_response
+from drcurves.simulate import sim_hierarchical
+
+df, _, _ = sim_hierarchical(seed=0)            # columns: region, store, x0..x2, A, Y
 
 model = fit_dose_response(
-    X, A, Y,
+    X=df[["x0", "x1", "x2"]], A=df["A"], Y=df["Y"],
     outcome_model=HGB(),
-    gps=GPS(),                          # boosted mean + scale, KDE residuals
-    groups=df[["region", "store"]],     # or None for one curve
-    pooling="partial",
-)
-curve, se = model.curve(a_grid, ("north", "store_17"))
-region_curve, _ = model.curve(a_grid, ("north",))
-# flat groups with no hierarchy: groups=df[["store"]]; one population: groups=None
-new_store, _ = model.curve(a_grid, ("north", "store_new"))   # falls back to region</code></pre>
+    groups=df[["region", "store"]],   # top -> bottom; df[["store"]] for flat groups; None for one curve
+)                                     # group codes are added to X for the nuisance models
+print(model.diagnostics())            # weights, fitted dose range, penalties, groups with constant dose
 
-  <p>Three checks are worth running every time:</p>
+a_grid = np.linspace(*np.quantile(df["A"], [0.05, 0.95]), 50)
+curve, se = model.curve(a_grid, ("r0", "r0_s03"))      # one store
+region, _ = model.curve(a_grid, ("r0",))               # its region
+new, _ = model.curve(a_grid, ("r0", "a_new_store"))    # unseen store: falls back to its region</code></pre>
+
+  <p>If the dose takes only a few values (tiers, or counts such as notifications per week), the package detects it and models the propensity with a classifier over those values instead of a density, because a continuous density is not a valid weight for a discrete dose. Three checks are worth running every time, and <code>diagnostics()</code> reports the numbers for them:</p>
 
   <ol class="pts">
-    <li><strong>Overlap.</strong> Look at the weights ϖ(A)/π(A | X). A long right tail means some doses are rare for some kinds of unit, and the curve there is an extrapolation. Report the curve over the doses you actually observe, not beyond them. The repo caps weights at the 99th percentile by default. The cap adds a little bias; without it, a handful of near-zero density estimates can swamp the curve. <code>max_weight_quantile</code> sets the trade-off.</li>
-    <li><strong>The GPS.</strong> Check the standardised residuals (A − mean) / scale. If they are skewed or heavy-tailed, keep the kernel density (the default); a normal error will understate the tails.</li>
-    <li><strong>Shrinkage.</strong> Print the chosen penalties. Very large ones mean the level adds little beyond its parent; very small ones mean the groups really are different.</li>
+    <li><strong>Overlap.</strong> Look at the weights ϖ(A)/π(A | X). A long right tail, or a small effective sample size share, means some doses are rare for some kinds of unit, and the curve there is an extrapolation. Report the curve over the doses you actually observe; the package warns if you ask for doses outside them. Weights are capped at the 99th percentile by default. The cap adds a little bias; without it, a handful of near-zero density estimates can swamp the curve. <code>max_weight_quantile</code> sets the trade-off.</li>
+    <li><strong>The GPS.</strong> For a continuous dose, check that the residuals of the dose model look roughly the same shape across units. The default uses a kernel density for that shape, which copes with skew and heavy tails better than a normal error.</li>
+    <li><strong>Shrinkage.</strong> Read the chosen penalties. Very large ones mean the level adds little beyond its parent; very small ones mean the groups really are different. Groups with a constant dose have no curve of their own to estimate and simply inherit their parent's.</li>
   </ol>
 
   <h3>Uncertainty</h3>
@@ -467,7 +472,7 @@ new_store, _ = model.curve(a_grid, ("north", "store_new"))   # falls back to reg
   <p>A curve is only useful for a decision if you know how far to trust it. The package gives four kinds of interval, all from the same fitted model:</p>
 
 <pre><code>est, lo, hi, _ = model.band(a_grid, ("north", "store_17"))           # whole-curve band
-lift, se = model.contrast(0.10, 0.20, ("north", "store_17"))         # 10% -> 20% discount
+lift, se = model.contrast(0.10, 0.20, ("north", "store_17"))         # dose 0.10 -> 0.20
 gap, se = model.contrast(0.15, 0.15, ("north", "store_17"), ("north", "store_04"))  # same dose, two stores
 best = model.optimal_dose(a_grid, ("north", "store_17"))             # dose, lo, hi, at_edge</code></pre>
 
@@ -477,18 +482,33 @@ best = model.optimal_dose(a_grid, ("north", "store_17"))             # dose, lo,
     <li><strong>Optimal dose.</strong> The argmax of each drawn curve gives an interval for where the peak is. <code>at_edge</code> reports how often the peak lands at the end of the observed doses, a warning that the true optimum may lie outside your data.</li>
   </ul>
 
-  <p>The covariance matters more than the method. Penalised splines and shrinkage are biased on purpose, and a standard sandwich covariance treats the fitted curve as if it were unbiased. The default adds the prior (penalty) term of the equivalent Bayesian model, the approach behind the intervals in <code>mgcv</code> (<a href="https://doi.org/10.1111/j.1467-9469.2011.00760.x" target="_blank" rel="noopener">Marra and Wood 2012</a>), so the band widens where shrinkage pulls the curve.</p>
+  <p>The covariance matters more than the method. Penalised splines and shrinkage are biased on purpose, and a standard sandwich covariance treats the fitted curve as if it were unbiased. The default is instead the posterior covariance of the equivalent Bayesian model, σ²(X′X + P)⁻¹ with P the penalty, which is what <code>mgcv</code> uses for its intervals. Its intervals widen where the penalty pulls the curve. <a href="https://doi.org/10.1111/j.1467-9469.2011.00760.x" target="_blank" rel="noopener">Marra and Wood (2012)</a> show this gives close to nominal coverage averaged across the curve, rather than at every point.</p>
 
-  <p>To check the intervals, the Sim 1 and Sim 3 data were regenerated many times and each interval was scored against the truth:</p>
+  <p>To check the intervals, the Sim 1 and Sim 3 data were regenerated many times and each interval was scored against the truth. The bands are for each curve's shape (the curve minus its average), since group baselines are not the target:</p>
 
   <div class="dtable-wrap">{table4}</div>
 
   <ul class="pts">
-    <li><strong>One curve:</strong> the default bands are close to nominal pointwise, contrasts and optimal-dose intervals cover at or above 95%, and the simultaneous band falls a little short ({pct(s4a.loc['robust_bayes','simultaneous'])}).</li>
-    <li><strong>Many curves:</strong> the plain sandwich is badly overconfident ({pct(s4b.loc[('sandwich','all'),'pointwise'])} pointwise), because it ignores shrinkage. The default does much better but is still below 95%. Coverage falls as stores get bigger ({pct(small4['pointwise'])} pointwise under 25 observations, {pct(big4['pointwise'])} above 150): bands shrink with more data, but a small bias from the nuisance models does not.</li>
+    <li><strong>One curve:</strong> the default pointwise band is close to nominal ({pct(s4a.loc['bayes','pointwise'])}), and the simultaneous band falls a little short ({pct(s4a.loc['bayes','simultaneous'])}). Contrasts cover {pct(s4a.loc['bayes','contrast'])}, so their intervals are, if anything, too wide. Optimal-dose intervals cover {pct(s4a.loc['bayes','optimum'])}.</li>
+    <li><strong>Many curves:</strong> the plain sandwich is badly overconfident ({pct(s4b.loc[('sandwich','all'),'pointwise'])} pointwise), because it ignores shrinkage. The default does much better ({pct(s4b.loc[('bayes','all'),'pointwise'])} pointwise, {pct(s4b.loc[('bayes','all'),'optimum'])} for the optimal dose) but is still below 95% for bands. Coverage is {pct(small4['pointwise'])} pointwise in stores under 25 observations and {pct(big4['pointwise'])} above 150. A likely reason for any shortfall in big stores is a small bias from the nuisance models, which stays while the band narrows; the simulation does not isolate it.</li>
   </ul>
 
+  <p>In practice, use the simultaneous band for any statement about the shape, ask for <code>level=0.99</code> when a decision rests on it, and treat a 95% band over many shrunk curves as closer to an 85–90% band.</p>
+
   <p>None of these intervals include the uncertainty from fitting the outcome model and the GPS. For a number that will drive a decision, run <code>bootstrap_curves</code> once. It refits the whole pipeline on resampled data (within each store, so every store's curve stays defined). It is slow, so use it as a check rather than routinely.</p>
+</section>
+
+<section id="limits">
+  <h2>When not to use this</h2>
+  <p>Every method here rests on the same assumptions, and some data breaks them:</p>
+  <ul class="pts">
+    <li><strong>Unmeasured confounding.</strong> X must explain how doses were assigned. Double robustness protects against a wrong model, not a missing variable.</li>
+    <li><strong>Poor overlap.</strong> If some kinds of unit only ever get low doses, nothing in the data says what high doses would do for them. Check the weights, and restrict the dose range you report.</li>
+    <li><strong>Doses set at the group level.</strong> If every customer in a store gets the store's discount, the store is the unit of analysis. Aggregate to stores first; row-level pooling across customers overstates what you know.</li>
+    <li><strong>A spike at zero.</strong> Zero spend next to a continuous range of positive spend is a mixture the density model cannot represent. The package warns; analyse "any versus none" separately from "how much".</li>
+    <li><strong>Crossed groupings.</strong> Store × channel, where channels are not nested in stores, is not supported. Each level must sit inside the one above.</li>
+    <li><strong>A population curve from a hierarchical fit.</strong> The top-level curve of a pooled fit is a "typical group" curve, not the average over all units. Fit with <code>groups=None</code> for that.</li>
+  </ul>
 </section>
 
 <!-- FAQ -->
@@ -511,9 +531,6 @@ best = model.optimal_dose(a_grid, ("north", "store_17"))             # dose, lo,
     <p>Yes. The ridge penalties are Gaussian priors on the deviations, tuned by cross-validation rather than given hyperpriors. Fitting the same spline structure in PyMC or brms on the pseudo-outcomes gives full posteriors for each store's curve, at more computational cost.</p>
   </details>
 
-  <details class="faq"><summary>Does this need unconfoundedness?</summary>
-    <p>Yes. Every method here assumes the confounders in X explain why units got the doses they did. Double robustness protects you from a wrong model, not from a missing confounder. If the dose was set using something you cannot see, no estimator in this article will fix it.</p>
-  </details>
 </section>
 
 <!-- Conclusion -->
@@ -524,7 +541,7 @@ best = model.optimal_dose(a_grid, ("north", "store_17"))             # dose, lo,
 
   <ul class="pts">
     <li><strong>Shape.</strong> θ is an average slope weighted by where the doses fall, so it moves with the treatment policy. Estimate θ(a) instead.</li>
-    <li><strong>Robustness.</strong> The default partialling-out score breaks when the treatment model is wrong; the IV-type score fixes that, but only for θ. The DR pseudo-outcome survives either model being wrong for the whole curve, at some cost in variance.</li>
+    <li><strong>Robustness.</strong> The default partialling-out score breaks when the treatment model is wrong; the IV-type score fixes that, but only for θ. The DR pseudo-outcome survives either model being wrong for the whole curve. It is insurance, not a free lunch: when both models are merely imperfect, a good outcome model on its own can do better.</li>
     <li><strong>Many curves.</strong> Looping over groups gives noise for the small ones. Partial pooling gives every group a curve, shrinks the small ones toward their parent, and lets the big ones speak for themselves.</li>
   </ul>
 

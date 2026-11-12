@@ -1,14 +1,25 @@
-"""Sim 2 - Double robustness for the *curve*.
+"""Sim 2 - Robustness, on the 50-confounder data (4 strong nonlinear + 46 weak).
 
-Part A (curve): fit a right (boosted) and a wrong (linear) version of each
-nuisance model, then combine them four ways. Plug-in needs the outcome model,
-IPW needs the GPS, the DR pseudo-outcome needs only one of the two.
+Part A (the curve): a correct and a wrong version of the outcome model and of
+the dose model, combined four ways; three estimators from the same pieces:
+  S-learner      : outcome model averaged over X (needs the outcome model right)
+  weighting only : outcome reweighted by varpi/pi (needs the dose model right)
+  DR             : pseudo-outcome (needs one of the two right)
+"Wrong" outcome model: correct in the dose (A, A^2) but linear in the raw
+covariates, so it mishandles the confounding, not the shape.
+"Wrong" dose model: linear mean in the raw covariates, constant normal error.
 
-Part B (DoubleML PLR, linear true effect so theta is well defined): the default
-'partialling out' score needs the treatment model E[D|X] right; it is not
-protected by a correct outcome model.
+Part B (in practice): boosted outcome model, with boosted density weights or
+balancing weights; S-learner from the same boosted model.
+
+Part C (DoubleML, linear true effect so theta is defined): partialling-out vs
+IV-type score with right/wrong nuisance models.
+
+Usage: python experiments/sim2_double_robustness.py REPS   (resumable cache)
 """
+import json
 import sys
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -20,116 +31,115 @@ from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import FunctionTransformer
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-from _style import C, INK, plt  # noqa: E402
-from drcurves import GPS, HierarchicalDoseResponse, cross_fit_nuisances, pseudo_outcomes  # noqa: E402
+from drcurves import GPS, BalancingWeights, HierarchicalDoseResponse, cross_fit_nuisances, pseudo_outcomes  # noqa: E402
 from drcurves.nuisance import Nuisances  # noqa: E402
-from drcurves.simulate import sim_double_robust  # noqa: E402
+from drcurves.simulate import sim_high_dim  # noqa: E402
 
+warnings.filterwarnings("ignore")
 ROOT = Path(__file__).resolve().parents[1]
+CACHE = ROOT / "results" / "cache"
+CACHE.mkdir(parents=True, exist_ok=True)
 REPS = int(sys.argv[1]) if len(sys.argv) > 1 else 30
-hgb = lambda: HGB(max_iter=300, learning_rate=0.05, random_state=0)  # noqa: E731
+P, N = 50, 3000
 
 
-# "right" = correctly specified parametric model (the textbook test of double
-# robustness); "wrong" = linear in the raw covariates; "boosted" = what you'd
-# actually use in practice (flexible, approximately right).
-def f_conf(X):     # confounder features that enter both E[A|X] and E[Y|X]
-    return np.column_stack([np.sin(1.5 * X[:, 0]), X[:, 1] ** 2, X[:, 2] > 0, X[:, 3]])
+# ---------------------------------------------------------------- model specs
+def f_conf(X):         # the true confounding features (strong nonlinear + weak linear)
+    return np.column_stack([np.sin(1.5 * X[:, 0]), X[:, 1] ** 2, X[:, 2] > 0, X[:, 3], X[:, 4:]])
 
 
-def f_outcome(Z):  # Z = [X, A]
+def f_out_right(Z):    # Z = [X, A]
     a = Z[:, -1]
     return np.column_stack([f_conf(Z[:, :-1]), a, a ** 2])
 
 
+def f_out_wrong(Z):    # right in the dose, linear in raw covariates
+    a = Z[:, -1]
+    return np.column_stack([Z[:, :-1], a, a ** 2])
+
+
 def f_scale(X):
-    return (1 / (1 + np.exp(-2 * X[:, [0]])))
+    return 1 / (1 + np.exp(-2 * X[:, [0]]))
 
 
 def lin(fn):
     return make_pipeline(FunctionTransformer(fn), LinearRegression())
 
 
-OUTCOME = {"right": lin(f_outcome), "wrong": LinearRegression(), "boosted": hgb()}
-GPSM = {"right": GPS(mean_model=lin(f_conf), scale_model=lin(f_scale), residual="gaussian"),
-        "wrong": GPS(mean_model=LinearRegression(), heteroscedastic=False, residual="gaussian"),
-        "boosted": GPS()}
-SCEN = [("right", "right"), ("wrong", "right"), ("right", "wrong"), ("wrong", "wrong"),
-        ("boosted", "boosted")]
-LABEL = {("right", "right"): "Both right", ("wrong", "right"): "Outcome model wrong",
-         ("right", "wrong"): "GPS wrong", ("wrong", "wrong"): "Both wrong",
-         ("boosted", "boosted"): "Both boosted"}
+hgb = lambda: HGB(max_iter=300, learning_rate=0.05, random_state=0)  # noqa: E731
+OUTCOME = {"right": lin(f_out_right), "wrong": lin(f_out_wrong)}
+DOSE = {"right": GPS(mean_model=lin(f_conf), scale_model=lin(f_scale), residual="gaussian"),
+        "wrong": GPS(mean_model=LinearRegression(), heteroscedastic=False, residual="gaussian")}
+SCEN = [("right", "right"), ("wrong", "right"), ("right", "wrong"), ("wrong", "wrong")]
+
+_, A_big, _, f = sim_high_dim(n=200_000, p=P, seed=0)
+GRID = np.linspace(*np.quantile(A_big, [0.05, 0.95]), 50)
+TRUTH = f(GRID)
 
 
 def centred(v):
-    return v - v.mean()
+    return np.asarray(v) - np.mean(v)
 
 
-# ------------------------------------------------------------------ Part A
-_, A_big, _, f = sim_double_robust(n=200_000, seed=0)
-grid = np.linspace(*np.quantile(A_big, [0.05, 0.95]), 60)   # fixed grid across reps
-truth = centred(f(grid))
-curves = {}
+def curve(A, nuis, Y, kind):
+    est, _ = HierarchicalDoseResponse().fit(A, pseudo_outcomes(nuis, Y, kind)).curve(GRID)
+    return centred(est).tolist()
+
+
 for rep in range(REPS):
-    X, A, Y, _ = sim_double_robust(n=3000, seed=100 + rep)
+    path = CACHE / f"sim2hd_{rep:03d}.json"
+    if path.exists():
+        continue
+    X, A, Y, _ = sim_high_dim(n=N, p=P, seed=100 + rep)
+    out = {}
+    # Part A
     nu = {k: cross_fit_nuisances(X, A, Y, OUTCOME[k], None, random_state=rep) for k in OUTCOME}
-    ng = {k: cross_fit_nuisances(X, A, Y, None, GPSM[k], random_state=rep) for k in GPSM}
-    for om, gm in SCEN:
-        nuis = Nuisances(mu=nu[om].mu, m=nu[om].m, pi=ng[gm].pi, varpi=ng[gm].varpi)
+    nd = {k: cross_fit_nuisances(X, A, Y, None, DOSE[k], random_state=rep) for k in DOSE}
+    for om, dm in SCEN:
+        nn = Nuisances(mu=nu[om].mu, m=nu[om].m, pi=nd[dm].pi, varpi=nd[dm].varpi)
         for kind in ["plugin", "ipw", "dr"]:
-            est, _ = HierarchicalDoseResponse().fit(A, pseudo_outcomes(nuis, Y, kind)).curve(grid)
-            curves.setdefault((om, gm, kind), []).append(centred(est))
-    print(f"rep {rep} done", flush=True)
-
-rows = []
-for (om, gm, kind), cs in curves.items():
-    cs = np.array(cs)
-    rows.append(dict(outcome=om, gps=gm, estimator=kind,
-                     abs_bias=np.mean(np.abs(cs.mean(0) - truth)),      # integrated |bias|
-                     sd=np.mean(cs.std(0)),                             # integrated sd
-                     rmse=np.sqrt(np.mean((cs - truth) ** 2))))
-summ = pd.DataFrame(rows).round(3)
-summ.to_csv(ROOT / "results" / "sim2_curve_summary.csv", index=False)
-np.savez(ROOT / "results" / "sim2_curves.npz", grid=grid, truth=truth + f(grid).mean(),
-         **{"|".join(k): np.array(v) + f(grid).mean() for k, v in curves.items()})
-print(summ.to_string(index=False))
-
-fig, axes = plt.subplots(1, 4, figsize=(15, 3.9), sharey=True)
-names = {"plugin": "Plug-in (outcome only)", "ipw": "IPW (GPS only)", "dr": "Doubly robust"}
-for ax, sc in zip(axes, SCEN[:4]):
-    for i, kind in enumerate(["plugin", "ipw", "dr"]):
-        cs = np.array(curves[(*sc, kind)]) + f(grid).mean()
-        col = C[[1, 3, 0][i]]
-        if kind == "dr":
-            lo, hi = np.percentile(cs, [5, 95], axis=0)
-            ax.fill_between(grid, lo, hi, color=col, alpha=0.15, lw=0)
-        ax.plot(grid, cs.mean(0), color=col, label=names[kind], lw=2.4 if kind == "dr" else 1.8)
-    ax.plot(grid, f(grid), color=INK, ls="--", label="Truth")
-    ax.set_title(LABEL[sc])
-    ax.set_xlabel("Treatment a")
-axes[0].set_ylabel("E[Y(a)]  (mean over reps)")
-axes[0].legend(loc="lower center", fontsize=9)
-fig.suptitle("Sim 2 · Doubly robust: right if either nuisance model is right", x=0.01, ha="left",
-             fontweight="bold")
-fig.tight_layout()
-fig.savefig(ROOT / "figures" / "sim2_double_robustness.png")
-
-# ------------------------------------------------------------------ Part B
-prow = []
-for rep in range(REPS):
-    X, A, Y, _ = sim_double_robust(n=3000, effect="linear", seed=500 + rep)
-    data = DoubleMLData.from_arrays(X, Y, A)
-    for om, gm in SCEN:
-        pick = {"right": lin(f_conf), "wrong": LinearRegression(), "boosted": hgb()}
-        l, m = pick[om], pick[gm]
+            out[f"A|{om}|{dm}|{kind}"] = curve(A, nn, Y, kind)
+    # Part B
+    nb = cross_fit_nuisances(X, A, Y, hgb(), GPS(random_state=rep), random_state=rep)
+    nbal = cross_fit_nuisances(X, A, Y, None, BalancingWeights(), random_state=rep)
+    out["B|slearner"] = curve(A, nb, Y, "plugin")
+    out["B|dr_density"] = curve(A, nb, Y, "dr")
+    out["B|dr_balancing"] = curve(A, Nuisances(mu=nb.mu, m=nb.m, pi=nbal.pi, varpi=nbal.varpi), Y, "dr")
+    # Part C
+    Xl, Al, Yl, _ = sim_high_dim(n=N, p=P, seed=500 + rep, effect="linear")
+    data = DoubleMLData.from_arrays(Xl, Yl, Al)
+    pick = {"right": lin(f_conf), "wrong": LinearRegression()}
+    for om, dm in SCEN:
         for score in ["partialling out", "IV-type"]:
             kw = dict(ml_g=pick[om]) if score == "IV-type" else {}
-            plr = DoubleMLPLR(data, l, m, score=score, n_folds=5, **kw).fit()
-            prow.append(dict(rep=rep, outcome=om, treatment_model=gm, score=score,
-                             theta=plr.coef[0], covered=abs(plr.coef[0] - 1) < 1.96 * plr.se[0]))
-pres = pd.DataFrame(prow)
-pres.to_csv(ROOT / "results" / "sim2_plr_reps.csv", index=False)
-psum = pres.groupby(["score", "outcome", "treatment_model"]).agg(
-    bias=("theta", lambda v: v.mean() - 1.0), sd=("theta", "std"), coverage=("covered", "mean")).round(3).reset_index()
+            np.random.seed(rep)
+            plr = DoubleMLPLR(data, pick[om], pick[dm], score=score, n_folds=5, **kw).fit()
+            out[f"C|{score}|{om}|{dm}"] = [float(plr.coef[0]), float(plr.se[0])]
+    path.write_text(json.dumps(out))
+    print(f"rep {rep} done", flush=True)
+
+# ----------------------------------------------------------------- summarise
+files = sorted(CACHE.glob("sim2hd_*.json"))
+D = [json.loads(p.read_text()) for p in files]
+t = centred(TRUTH)
+rows, curves = [], {}
+for key in [k for k in D[0] if not k.startswith("C|")]:
+    cs = np.array([d[key] for d in D])
+    curves[key] = cs
+    rows.append(dict(key=key, reps=len(cs), abs_bias=np.mean(np.abs(cs.mean(0) - t)),
+                     sd=np.mean(cs.std(0)), rmse=np.sqrt(np.mean((cs - t) ** 2))))
+summ = pd.DataFrame(rows).round(3)
+summ.to_csv(ROOT / "results" / "sim2_curve_summary.csv", index=False)
+np.savez(ROOT / "results" / "sim2_curves.npz", grid=GRID, truth=TRUTH,
+         **{k: v + TRUTH.mean() for k, v in curves.items()})
+prow = []
+for key in [k for k in D[0] if k.startswith("C|")]:
+    _, score, om, dm = key.split("|")
+    th = np.array([d[key][0] for d in D])
+    se = np.array([d[key][1] for d in D])
+    prow.append(dict(score=score, outcome=om, treatment_model=dm, bias=th.mean() - 1.0, sd=th.std(),
+                     coverage=np.mean(np.abs(th - 1.0) <= 1.96 * se), reps=len(th)))
+psum = pd.DataFrame(prow).round(3)
 psum.to_csv(ROOT / "results" / "sim2_plr_summary.csv", index=False)
+print(summ.to_string(index=False))
 print(psum.to_string(index=False))

@@ -32,38 +32,19 @@ def pct(v):
 # ======================================================================= data
 s1 = json.loads((RES / "sim1_curves.json").read_text())
 s1tab = pd.read_csv(RES / "sim1_nonlinear.csv").set_index("curve")
-s2 = pd.read_csv(RES / "sim2_curve_summary.csv")
 s2plr = pd.read_csv(RES / "sim2_plr_summary.csv")
 s2c = np.load(RES / "sim2_curves.npz")
 s3 = json.loads((RES / "sim3_curves.json").read_text())
 s3size = pd.read_csv(RES / "sim3_summary_by_size.csv")
 s3rmse = pd.read_csv(RES / "sim3_store_rmse.csv")
 s3plr = pd.read_csv(RES / "sim3_plr_per_store.csv")
-N_REPS2 = int(pd.read_csv(RES / "sim2_plr_reps.csv").rep.nunique())
+N_REPS2 = int(s2plr.reps.min())
 N_REPS3 = int(s3rmse.rep.nunique())
 s4a = pd.read_csv(RES / "sim4_single_summary.csv").set_index("cov_type")
 s4b = pd.read_csv(RES / "sim4_stores_summary.csv").set_index(["cov_type", "size_band"])
 N_REPS4A = int(pd.read_csv(RES / "sim4_single_reps.csv").rep.nunique())
-s5 = pd.read_csv(RES / "sim5_dimension_summary.csv").set_index(["p", "estimator"])
-N_REPS5 = int(s5.reps.min())
 s6 = pd.read_csv(RES / "sim6_intervals_summary.csv").set_index(["p", "weights"])
 
-
-def b5(p, est):
-    return float(s5.loc[(p, est), "abs_bias"])
-
-
-rows5 = []
-for est, lab in [("plugin", "Plug-in (outcome model only)"), ("dr_density", "DR, density weights"),
-                 ("dr_riesz", "DR, learned (Riesz) weights"), ("dr_true_weights", "DR, true weights (benchmark)")]:
-    vals = [b5(p, est) for p in (5, 20, 50)]
-    best = min(b5(p, e) for p in (5, 20, 50) for e in ("plugin", "dr_density", "dr_riesz"))
-    cells = "".join(f"<td class='num'>{v:.2f}</td>" for v in vals)
-    rows5.append(f"<tr><td>{lab}</td>{cells}</tr>")
-table5 = ("<table class='dtable'><caption>Average absolute bias of the mean estimated curve, boosted outcome model, "
-          f"n = 3,000, {N_REPS5} replications per column</caption><thead><tr><th>Estimator</th>"
-          "<th class='num'>5 confounders</th><th class='num'>20</th><th class='num'>50</th></tr></thead><tbody>"
-          + "".join(rows5) + "</tbody></table>")
 N_REPS4B = int(pd.read_csv(RES / "sim4_stores_reps.csv").rep.nunique())
 
 
@@ -89,10 +70,6 @@ big4 = s4b.loc[("bayes", "150+")]
 small4 = s4b.loc[("bayes", "<25")]
 
 
-def c2(om, gm, est, col="abs_bias"):
-    return float(s2.query("outcome==@om and gps==@gm and estimator==@est")[col].iloc[0])
-
-
 def p2(score, om, gm, col="bias"):
     return float(s2plr.query("score==@score and outcome==@om and treatment_model==@gm")[col].iloc[0])
 
@@ -112,53 +89,33 @@ for key, title in [("inverted_u", "Inverted-U effect"), ("saturating", "Saturati
 
 # ===================================================================== sim 2
 g2, t2 = s2c["grid"], s2c["truth"]
-SC = [("right", "right", "Both right", "All three estimators recover the curve"),
-      ("wrong", "right", "Outcome model wrong", "Plug-in fails; IPW and DR hold"),
-      ("right", "wrong", "GPS wrong", "IPW fails; plug-in and DR hold"),
-      ("wrong", "wrong", "Both wrong", "Nothing can save this")]
+SC = [("right", "right", "Both models right"), ("wrong", "right", "Outcome model wrong"),
+      ("right", "wrong", "Dose model wrong"), ("wrong", "wrong", "Both wrong")]
+ylim2 = (t2.min() - 1.0, t2.max() + 0.8)
+errs = {k: s2c[k] - t2 for k in s2c.files if k.startswith("A|")}
+lim_e = float(np.ceil(max(np.abs(v.mean(0)).max() for v in errs.values()) * 1.25 * 10) / 10)
 sim2_panels = []
-for om, gm, title, sub in SC:
-    ser = []
+for om, dm, title in SC:
+    ser = [{"y": np.zeros_like(t2), "color": INK, "dash": "5 4", "width": 2}]
     for est, col in [("plugin", YELLOW), ("ipw", AQUA), ("dr", BLUE)]:
-        cs = s2c[f"{om}|{gm}|{est}"]
-        item = {"y": cs.mean(0), "color": col, "width": 2.6 if est == "dr" else 1.8}
+        e = errs[f"A|{om}|{dm}|{est}"]
+        item = {"y": e.mean(0), "color": col, "width": 2.6 if est == "dr" else 1.8}
         if est == "dr":
-            item["lo"], item["hi"] = np.percentile(cs, [5, 95], axis=0)
+            item["lo"], item["hi"] = np.percentile(e, [5, 95], axis=0)
         ser.append(item)
-    ser.append({"y": t2, "color": INK, "dash": "5 4", "width": 2})
-    sim2_panels.append(line_panel(g2, ser, title, sub, ylim=(t2.min() - 1.6, t2.max() + 1.0)))
+    sim2_panels.append(line_panel(g2, ser, title, "", ylim=(-lim_e, lim_e)))
 
+bal = s2c["B|dr_balancing"]
+blo, bhi = np.percentile(bal, [5, 95], axis=0)
+practice_panel = line_panel(g2, [
+    {"y": s2c["B|slearner"].mean(0), "color": YELLOW, "width": 2},
+    {"y": s2c["B|dr_density"].mean(0), "color": ORANGE, "width": 2},
+    {"y": bal.mean(0), "lo": blo, "hi": bhi, "color": BLUE, "width": 2.6},
+    {"y": t2, "color": INK, "dash": "5 4", "width": 2},
+], "", "", ylim=ylim2, w=680, h=280)
 
-def cls(v, good=0.15, bad=0.3):
-    return "good" if v < good else ("bad" if v > bad else "")
-
-
-rows2 = []
-for om, gm, title, _ in SC + [("boosted", "boosted", "Both boosted (practice)", "")]:
-    cells = "".join(f'<td class="num {cls(c2(om, gm, e))}">{c2(om, gm, e):.2f}</td>' for e in ["plugin", "ipw", "dr"])
-    rows2.append(f"<tr><td>{title}</td>{cells}<td class='num'>{c2(om, gm, 'dr', 'sd'):.2f}</td></tr>")
-table2 = ("<table class='dtable'><caption>Average absolute bias of the mean estimated curve over the 5–95% "
-          f"treatment range, {N_REPS2} replications (true curve spans about {t2.max()-t2.min():.1f} units)</caption>"
-          "<thead><tr><th>Nuisance models</th><th class='num'>Plug-in</th><th class='num'>IPW</th>"
-          "<th class='num'>Doubly robust</th><th class='num'>DR spread (sd)</th></tr></thead><tbody>"
-          + "".join(rows2) + "</tbody></table>")
-
-def cov(c):
-    return "good" if c >= 0.85 else "bad"
-
-
-rowsp = []
-for om, gm, title, _ in SC + [("boosted", "boosted", "Both boosted (practice)", "")]:
-    a, b = p2("partialling out", om, gm), p2("IV-type", om, gm)
-    ca, cb = p2("partialling out", om, gm, "coverage"), p2("IV-type", om, gm, "coverage")
-    rowsp.append(f"<tr><td>{title.replace('GPS', 'Treatment model')}</td>"
-                 f"<td class='num'>{f2(a, True)}</td><td class='num {cov(ca)}'>{pct(ca)}</td>"
-                 f"<td class='num'>{f2(b, True)}</td><td class='num {cov(cb)}'>{pct(cb)}</td></tr>")
-tablep = ("<table class='dtable'><caption>DoubleMLPLR on a linear effect (true θ = 1), "
-          f"{N_REPS2} replications</caption><thead><tr><th>Nuisance models</th>"
-          "<th class='num'>Partialling out: bias</th><th class='num'>95% CI coverage</th>"
-          "<th class='num'>IV-type: bias</th><th class='num'>95% CI coverage</th></tr></thead><tbody>"
-          + "".join(rowsp) + "</tbody></table>")
+cov_po = p2("partialling out", "right", "wrong", "coverage")
+plr_cov_text = "never contained" if cov_po == 0 else f"contained only {pct(cov_po)} of the time"
 
 # ===================================================================== sim 3
 grid3 = np.array(s3["grid"])
@@ -231,8 +188,10 @@ explorer_data = json.dumps({"grid": s3["grid"], "stores": [
 
 # =================================================================== article
 LEG1 = legend([("True curve", INK, "5 4"), ("DR curve, this repo (95% band)", BLUE, ""), ("DoubleML PLR", ORANGE, "")])
-LEG2 = legend([("True curve", INK, "5 4"), ("Plug-in (outcome model only)", YELLOW, ""),
-               ("IPW (GPS only)", AQUA, ""), ("Doubly robust (5–95% across reps)", BLUE, "")])
+LEG2 = legend([("Truth (zero error)", INK, "5 4"), ("S-learner", YELLOW, ""), ("Weighting only", AQUA, ""),
+               ("Doubly robust", BLUE, "")])
+LEG5 = legend([("True curve", INK, "5 4"), ("S-learner", YELLOW, ""), ("DR, density weights", ORANGE, ""),
+               ("DR, balancing weights", BLUE, "")])
 LEG3 = legend([("True store curve", INK, "5 4"), ("No pooling", ORANGE, ""), ("Complete pooling", GREY, ""),
                ("Partial pooling (95% band)", BLUE, "")])
 
@@ -265,7 +224,7 @@ select {{ font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px so
 </header>
 
 <nav class="snav">
-  <a href="#plr" class="active">1 · The usual approach</a>
+  <a href="#plr" class="active">1 · One slope vs a curve</a>
   <a href="#shape">2 · Shape</a>
   <a href="#robust">3 · Robustness</a>
   <a href="#many">4 · Many curves</a>
@@ -277,49 +236,41 @@ select {{ font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px so
 
 <main>
 
-<p>A lot of the treatments we care about are not on or off. A discount can be 5% or 40%. A marketing team can spend £10k or £200k in a region. A user can get one notification a week or fifteen. The question is rarely "did it work?" It is "how much is the right amount?", and that question is about the shape of a curve.</p>
-
-<p>When the treatment is continuous and chosen rather than randomised, most analysts reach for double machine learning, usually the partially linear model in <a href="https://docs.doubleml.org/" target="_blank" rel="noopener">DoubleML</a>. It is a good default for a binary treatment. For a continuous one it has three limitations that matter in practice:</p>
+<p>Not all treatments are binary: marketing spend, price, discount depth, app notifications, customer service response times. Rather than asking "did this treatment work?", we often need to know "what's the right amount?". When the treatment is continuous and chosen rather than randomised, most analysts reach for double machine learning, usually the partially linear model in <a href="https://docs.doubleml.org/" target="_blank" rel="noopener">DoubleML</a>. It is a good default for a binary treatment, but for a continuous one it has three limitations that matter in practice:</p>
 
 <ul class="pts">
   <li><strong>It returns one number.</strong> The effect is assumed linear, so a rise-then-fall or a saturating curve comes back as a single slope.</li>
-  <li><strong>Its default score is not doubly robust.</strong> With a wrong treatment model the estimate is biased, however good the outcome model is. The alternative score is doubly robust, but only for that single number.</li>
-  <li><strong>It gives one answer per population.</strong> If you need a curve for each of 200 stores, you loop, and the small stores get noise.</li>
+  <li><strong>Its default score isn't doubly robust.</strong> With a wrong treatment model the estimate is biased, however good the outcome model is.</li>
+  <li><strong>It gives one answer per population.</strong> If you need a curve for each of 200 stores, looping over them gives noisy curves for the small ones.</li>
 </ul>
 
-<p>This article runs one simulation per limitation, plus a fourth on uncertainty, and shows an estimator that addresses all three: the doubly robust dose-response estimator of <a href="https://arxiv.org/abs/1507.00747" target="_blank" rel="noopener">Kennedy et al. (2017)</a>, with a second stage that partially pools curves across a hierarchy.</p>
+<p>This article runs one simulation per limitation and shows an estimator that addresses all three: the doubly robust dose-response estimator of <a href="https://arxiv.org/abs/1507.00747" target="_blank" rel="noopener">Kennedy et al. (2017)</a>, with a second stage that partially pools curves across a hierarchy.</p>
 
 <!-- 1 -->
 <section id="plr">
-  <h2>1. The partially linear model, and what replaces it</h2>
+  <h2>1. One slope versus a whole curve</h2>
 
-  <p>DoubleML's <code>DoubleMLPLR</code> fits</p>
+  <p>Let's start with the partially linear model. DoubleML's <code>DoubleMLPLR</code> fits</p>
 
   <div class="eqn">Y = θD + g(X) + ε</div>
 
-  <p>where D is the treatment, X the confounders and g(X) is learned with any machine learning model. Models like g, which we need but do not care about for their own sake, are called nuisance models. Cross-fitting (each row's predictions come from models trained on other rows) and an orthogonal score (an estimating equation that is insensitive to small errors in the nuisance models) remove the regularisation bias from g, so θ comes with a valid confidence interval. The cost is the θD term: the effect of every extra unit of treatment is the same, wherever you start.</p>
+  <p>where D is the treatment, X the confounders and g(X) is learned with any machine learning model. Models like g are called nuisance models: we need them, but don't care about them for their own sake. Cross-fitting (each row's predictions come from models trained on other rows) and an orthogonal score (an estimating equation that is insensitive to small errors in the nuisance models) stop the regularisation in g from biasing θ, which is what makes its confidence interval valid. The catch is the θD term: it assumes the effect is linear, so every extra unit of treatment has the same effect wherever you start.</p>
 
-  <p>When the truth is a curve f(D), θ still converges to something. If the treatment is roughly normal given X, it is a weighted average of the curve's slope (a consequence of Stein's lemma):</p>
+  <p>If the true effect is a curve, you still get a single slope back: roughly the curve's average slope across the doses in your data.</p>
 
-  <div class="eqn">θ = E[ Var(D | X) · f′(D) ] / E[ Var(D | X) ]</div>
-
-  <p>The weights come from where the treatment happens to vary in your data. Change who gets how much treatment and θ changes, even if the causal curve does not. Section 2 shows this happening.</p>
-
-  <p>The replacement estimates the whole curve, θ(a) = E[Y(a)], the average outcome if everyone received dose a. It runs in three steps:</p>
+  <p>The alternative is to estimate the whole curve: for every dose a, the average outcome if everyone received dose a. It takes three steps:</p>
 
   <div class="flow">
-    <div class="step"><div class="n">Step 1</div><div class="t">Cross-fit two nuisance models</div><p>An outcome model μ(x, a) = E[Y | X, A], and a generalised propensity score π(a | x): the density of the dose given X.</p></div>
+    <div class="step"><div class="n">Step 1</div><div class="t">Cross-fit two nuisance models</div><p>An outcome model μ(x, a) = E[Y | X, A], and a generalised propensity score (GPS) π(a | x): the density of the dose given X.</p></div>
     <div class="step"><div class="n">Step 2</div><div class="t">Build a pseudo-outcome</div><p>Combine them into one number per row, ξ, whose average at each dose is the causal curve.</p></div>
     <div class="step"><div class="n">Step 3</div><div class="t">Smooth, with pooling</div><p>Regress ξ on the dose with penalised splines, sharing strength across a hierarchy of groups.</p></div>
   </div>
 
-  <p>The pseudo-outcome is</p>
+  <p>Step 2 is where the robustness comes from. It starts with a regression estimate, the outcome model's prediction at dose a averaged over everyone, which on its own is an S-learner. It then adds a correction: the residuals of units that actually got a dose near a, weighted by how unusual that dose was for them so that they represent everyone. If the outcome model is right, the correction is just noise; if it's wrong, the correction removes the error, provided the model of who gets which dose is right. One of the two has to be right, not both: that's double robustness.<sup>1</sup></p>
 
-  <div class="eqn">ξ = (Y − μ(X, A)) · ϖ(A) / π(A | X) + m(A)</div>
+  <p>Step 3 turns these noisy per-row numbers into a smooth curve and, when there are groups, lets small groups borrow strength from larger ones (section 4).</p>
 
-  <p>where m(a) is the outcome model averaged over everyone's X at dose a, and ϖ(a) is the marginal density of the dose. The first term is an inverse-propensity weighted residual and the second a regression prediction. If the outcome model is right, the residuals average to zero and m(a) is the answer. If the propensity model is right, the weighted residual corrects whatever m(a) got wrong. That is what doubly robust means: either model can be wrong, as long as one of them is right. The ratio ϖ(A)/π(A | X) acts as a weight; section 3 shows it is better learned directly than built from a density when there are many confounders.</p>
-
-  <p>The binary-treatment AIPW estimator in DoubleML's <code>DoubleMLIRM</code> works the same way. The difference is that π is a density rather than a probability, and the final step is a curve rather than a mean.</p>
+  <p class="fig-cap" style="padding:0"><sup>1</sup> The pseudo-outcome is ξ = (Y − μ(X, A)) · ϖ(A)/π(A | X) + m(A), where μ is the outcome model, π the density of the dose given X, ϖ the overall density of the dose and m(a) the outcome model averaged over X at dose a (Kennedy et al. 2017). For a binary treatment this is the AIPW estimator behind DoubleML's <code>DoubleMLIRM</code>.</p>
 </section>
 
 <!-- 2 -->
@@ -327,41 +278,32 @@ select {{ font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px so
   <p class="s-label">Simulation 1</p>
   <h2>2. Shape: one slope cannot describe a curve</h2>
 
-  <p>Nonlinear dose-response is the norm in practice, not the exception. Two shapes cover most of what you will meet:</p>
+  <p>Nonlinear dose-response curves are common. Two shapes come up again and again:</p>
 
   <ul class="pts">
-    <li><strong>Saturating.</strong> Diminishing returns. The first £10k of ad spend in a region buys more conversions than the next £10k, and the hundredth sales call to the same account adds almost nothing. Marketing mix models build this in with saturation curves for a reason.</li>
-    <li><strong>Inverted U.</strong> Too much of a good thing. Deeper discounts win orders but give away margin, more notifications drive opens until users switch them off, and a higher price raises revenue per unit until volume falls away.</li>
+    <li><strong>Saturating.</strong> Diminishing returns. The first £10k of ad spend in a region buys more conversions than the next £10k, and the 20th app notification this month adds almost nothing.</li>
+    <li><strong>Inverted U.</strong> Too much of a good thing. Deeper discounts win orders but give away margin, and a higher price raises revenue per unit until volume falls away.</li>
   </ul>
 
-  <p>Either way, the decision you need to make (how much, and where to stop) lives in the curvature. A linear model removes the curvature by assumption.</p>
+  <p>In practice you rarely know the shape in advance, and the decision you need to make (how much, and where to stop) depends on it. So the method should find the shape rather than assume it.</p>
 
-  <p>The simulation draws 4,000 units with five covariates. Three of them drive the dose through nonlinear functions, a fourth changes how much the dose varies between units, and the first three also drive the outcome, so they confound the effect. The true effect is an inverted U in one dataset and a saturating curve in the other. Both methods use the same gradient boosting models for every nuisance function.</p>
+  <p>The simulation:</p>
+  <ul class="pts">
+    <li>4,000 units and five covariates.</li>
+    <li>Three covariates drive both the dose (through nonlinear functions) and the outcome, so they confound the effect. A fourth changes how much the dose varies between units; the fifth does nothing.</li>
+    <li>The true effect is an inverted U in one dataset and a saturating curve in the other.</li>
+    <li>Both methods use the same gradient-boosted models for every nuisance model.</li>
+  </ul>
 
   <div class="fig">
     <div class="fig-hdr">
       <div class="fig-title">One dataset, two estimates of the dose-response</div>
-      <div class="fig-sub">Middle 90% of the observed doses. Curves centred on the truth, since only the shape is being compared.</div>
     </div>
     <div class="fig-body">{LEG1}<div class="panels">{''.join(sim1_panels)}</div></div>
-    <p class="fig-cap">The DoubleML line is θ times the dose, drawn through the middle of the truth. Bands are pointwise 95% intervals.</p>
+    <p class="fig-cap">Each panel is one simulated dataset. Dashed black: the true dose-response curve. Blue: the DR curve, with a 95% band. Orange: DoubleML's estimate, a straight line with slope θ. Curves cover the middle 90% of observed doses and are centred, since only the shape is being compared.</p>
   </div>
 
-  <p>The DR curve follows both shapes (root mean squared error of the centred curve {inv.dr_curve_rmse:.2f} and {sat.dr_curve_rmse:.2f}, against {inv.plr_line_rmse:.2f} and {sat.plr_line_rmse:.2f} for the DoubleML line). DoubleML's θ is not wrong: {inv.plr_theta:.2f} is in the neighbourhood of the plain average slope of the inverted U across these units ({inv.true_avg_derivative:.2f}). It is not equal to it, because θ weights each unit by how much its dose varies. It is the right answer to a question you probably did not mean to ask. It says nothing about where the curve turns over, and in the saturating case it gives every unit the same marginal return, when units at high doses get almost none.</p>
-
-  <h3>θ depends on the treatment policy</h3>
-
-  <p>The second problem is subtler. The formula in section 1 says θ averages the slope over wherever doses happen to fall. To check, the inverted-U data was regenerated three times with the same causal curve, moving the whole dose distribution down by 0.5, leaving it alone, and moving it up by 0.5.</p>
-
-  <div class="knums">
-    <div class="kbox"><div class="lbl">Doses shifted down</div><div class="num">{pol[0]['theta']:.2f}</div><div class="lab">DoubleML θ (s.e. {pol[0]['se']:.2f})</div></div>
-    <div class="kbox"><div class="lbl">Original doses</div><div class="num">{pol[1]['theta']:.2f}</div><div class="lab">DoubleML θ (s.e. {pol[1]['se']:.2f})</div></div>
-    <div class="kbox"><div class="lbl">Doses shifted up</div><div class="num">{pol[2]['theta']:.2f}</div><div class="lab">DoubleML θ (s.e. {pol[2]['se']:.2f})</div></div>
-  </div>
-
-  <p>Three tight, non-overlapping intervals for the same causal effect. A team that cut discounts last year and a team that raised them would report different "effects of discount", and both would be right about their own data. A curve does not have this problem: θ(a) is defined at each dose and does not depend on how doses were handed out, only on there being enough of them nearby.</p>
-
-  <div class="callout"><p>With a continuous treatment, θ describes your treatment policy as much as the effect.</p></div>
+  <p>The DR curve follows both shapes. DoubleML's line can only tilt: it misses the peak of the inverted U, and on the saturating curve it gives every unit the same return, understating it at low doses and overstating it at high ones.</p>
 </section>
 
 <!-- 3 -->
@@ -369,66 +311,56 @@ select {{ font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px so
   <p class="s-label">Simulation 2</p>
   <h2>3. Robustness: one of two models will be wrong</h2>
 
-  <p>Every observational estimate leans on models we know are approximations, and for continuous treatments the treatment side is the hard one. The generalised propensity score is a full conditional density, not a probability. In practice the dose depends on confounders through business rules nobody wrote down: discount depth set by a pricing team's tiers, budget split by last year's revenue, notification cadence set by an engagement score with a cap. The variance changes too: some segments get a narrow band of doses, others a wide one. A model of the mean with a constant normal error, the usual default, is easy to get wrong. So is the outcome model, especially when the response depends on interactions you have not thought of.</p>
+  <p>Every observational estimate leans on models that are approximations. With a continuous dose, the model of who gets which dose is especially easy to get wrong. Doses are often set by unwritten business rules (pricing tiers, budgets split by last year's revenue, a cap on notifications), and some segments see a narrow range of doses while others see a wide one. The outcome model can be wrong too. So the useful question isn't whether your models are right, but what happens when one of them is wrong.</p>
 
-  <p>So the useful question is not "are my models right?" but "what happens when one of them is wrong?"</p>
+  <p>The simulation:</p>
+  <ul class="pts">
+    <li>3,000 units and 50 confounders: four with strong nonlinear effects on both the dose and the outcome, and 46 weak ones with small effects on both.</li>
+    <li>"Right" nuisance models are correctly specified. A "wrong" model gets the confounding wrong: it treats every confounder as linear.</li>
+    <li>For DoubleML the true effect is linear, so θ is well defined. For the curve it is the inverted U.</li>
+  </ul>
 
-  <h3>DoubleML's partially linear model</h3>
-
-  <p>DoubleMLPLR offers two scores. The default, partialling out, regresses outcome residuals on treatment residuals. To isolate the robustness question from the shape question, this part uses a linear true effect (θ = 1), so the partially linear model is correctly specified. "Right" means a correctly specified parametric model; "wrong" means a linear regression on the raw confounders.</p>
-
-  <div class="dtable-wrap">{tablep}</div>
-
-  <p>With the default score, a wrong treatment model biases θ by {f2(p2('partialling out','right','wrong'), True)}. That looks small, but the intervals contain the truth in {pct(p2('partialling out','right','wrong','coverage'))} of replications, even though the outcome model is correct. The partialling-out score is only protected against errors in the outcome model. The IV-type score is doubly robust: bias {f2(p2('IV-type','right','wrong'), True)} and {pct(p2('IV-type','right','wrong','coverage'))} coverage in the same row. So DoubleML can give you double robustness if you change the score away from the default. The same point is made formally by <a href="https://neurips.cc/virtual/2025/124095" target="_blank" rel="noopener">Valentin et al. (2025)</a>, who show the partialling-out (Robinson) estimator depends on the treatment model, and propose an augmented estimator (ADML) that is doubly robust for θ. What none of these give you is a doubly robust curve: the robustness is for θ, the single slope from section 2. The last row, with boosted models for both, shows the same pattern in practice: {pct(p2('partialling out','boosted','boosted','coverage'))} coverage with the default score against {pct(p2('IV-type','boosted','boosted','coverage'))} with IV-type.</p>
+  <p>DoubleML's partially linear model offers two scores. The default, partialling out (Robinson's estimator), only protects against errors in the outcome model: if the treatment model is wrong, θ is biased however good the outcome model is (<a href="https://neurips.cc/virtual/2025/124095" target="_blank" rel="noopener">Valentin et al. 2025</a>). In our simulation with a wrong treatment model, the default score's 95% intervals {plr_cov_text} the true θ. The IV-type score is doubly robust, but only for θ, the single slope from section 2. What we want is a doubly robust <em>curve</em>, which is what the pseudo-outcome from section 1 provides.</p>
 
   <h3>The curve</h3>
 
-  <p>Now the true effect is the inverted U again. The dose still has plenty of random variation given X, so every kind of unit is seen at a range of doses (good overlap). Without that, inverse density weights become extreme and every weighting estimator, DR included, struggles. Each dataset gets a right and a wrong version of the outcome model and the GPS, combined four ways, and three estimators are fitted from the same pieces:</p>
+  <p>Each dataset gets a correct and a wrong version of the outcome model and of the dose model, combined four ways, and three estimators are built from the same pieces:</p>
 
   <ul class="pts">
-    <li><strong>Plug-in:</strong> m(a) only, the outcome model averaged over X. Needs the outcome model right.</li>
-    <li><strong>IPW:</strong> Y · ϖ(A)/π(A | X) only. Needs the GPS right.</li>
-    <li><strong>Doubly robust:</strong> the pseudo-outcome ξ. Needs one of the two.</li>
+    <li><strong>S-learner:</strong> the outcome model's predictions, averaged over everyone. Needs the outcome model right.</li>
+    <li><strong>Weighting only:</strong> the outcome reweighted by how unusual each unit's dose was, with no outcome model. Needs the dose model right.</li>
+    <li><strong>Doubly robust:</strong> the pseudo-outcome. Needs one of the two right.</li>
   </ul>
 
   <div class="fig">
     <div class="fig-hdr">
-      <div class="fig-title">Mean estimated curve across {N_REPS2} replications</div>
-      <div class="fig-sub">n = 3,000 per replication. Blue band: 5th to 95th percentile of the DR curve across replications.</div>
+      <div class="fig-title">Which estimator survives a wrong model?</div>
     </div>
     <div class="fig-body">{LEG2}<div class="panels">{''.join(sim2_panels)}</div></div>
-    <p class="fig-cap">Every estimator uses the same penalised-spline second stage; only the pseudo-outcome changes.</p>
+    <p class="fig-cap">Each panel combines a right or wrong outcome model with a right or wrong dose model and shows each estimator's error: its average estimated curve over {N_REPS2} simulated datasets, minus the true curve. The dashed line at zero is the truth, so the closer to it the better. The blue band shows where 90% of the individual DR curves fall. Curves are centred.</p>
   </div>
 
-  <div class="dtable-wrap">{table2}</div>
-
   <ul class="pts">
-    <li><strong>Outcome model wrong:</strong> plug-in is off by {c2('wrong','right','plugin'):.2f} on average. DR is off by {c2('wrong','right','dr'):.2f}, because the weighted residuals correct it. What is left comes mostly from capping the largest weights (see section 5).</li>
-    <li><strong>GPS wrong:</strong> IPW is off by {c2('right','wrong','ipw'):.2f}. DR is off by less than 0.01, because the outcome model was already right.</li>
-    <li><strong>Both wrong:</strong> DR is off by {c2('wrong','wrong','dr'):.2f}. Double robustness gives you two chances, not a guarantee.</li>
+    <li><strong>Outcome model wrong:</strong> the S-learner misses the curve; DR gets much closer, because the weighted residuals correct most of the error.</li>
+    <li><strong>Dose model wrong:</strong> weighting only misses the curve; DR stays close, because the outcome model was already right.</li>
+    <li><strong>Both wrong:</strong> DR misses too. Double robustness gives you two chances, not a guarantee.</li>
   </ul>
 
-  <p>Double robustness is about bias, not noise. When the outcome model is badly wrong the residuals are large, and multiplying them by inverse density weights makes the DR curve vary more between datasets (sd {c2('wrong','right','dr','sd'):.2f} against {c2('right','right','dr','sd'):.2f} when both are right). <a href="https://projecteuclid.org/journals/statistical-science/volume-22/issue-4/Demystifying-Double-Robustness--A-Comparison-of-Alternative-Strategies-for/10.1214/07-STS227.full" target="_blank" rel="noopener">Kang and Schafer (2007)</a> made the same point for binary treatments: when the weights are extreme, DR can do worse than a good regression.</p>
+  <p>Weighting only is the weakest throughout. Even with the right dose model, a few units get extreme weights, and capping them (which the package does by default) leaves some bias. DR inherits little of this, because it only weights the residuals.</p>
 
-  <p>The last row is what you would do in practice: boosted models for both. Here plug-in wins: error {c2('boosted','boosted','plugin'):.2f} against {c2('boosted','boosted','dr'):.2f} for DR, with IPW far behind at {c2('boosted','boosted','ipw'):.2f}. When both nuisance models are good but not perfect, DR adds the product of their errors back in, and an imperfect boosted density makes that product noticeable. But this simulation has only four confounders, and with four smooth confounders and 3,000 rows a boosted outcome model has almost no regularisation bias left to correct. That is not the situation double machine learning was built for.</p>
+  <h3>In practice</h3>
 
-  <h3>With many confounders</h3>
+  <p>Nobody knows which model is right, so in practice both are flexible machine learning models. With 50 confounders, that is where the S-learner's weakness shows: a boosted outcome model spreads its effort over many weak features, shrinks the dose's effect and lets correlated features absorb part of it, so the curve flattens. The DR correction exists to remove exactly that bias, but only if the weights are good, and weights built from a boosted density are not. Small errors in the density's mean become very large errors in the weights. Entropy balancing weights avoid the density altogether: they make the dose uncorrelated with each confounder in the weighted sample (<a href="https://doi.org/10.1515/jem-2021-0002" target="_blank" rel="noopener">Tübbicke 2022</a>).</p>
 
-  <p>Real problems rarely have four confounders. Customer-level analyses typically have dozens of features, most with small effects. A regularised outcome model then shrinks the dose's effect and lets correlated features absorb part of it, so the plug-in curve flattens. This is the regularisation bias that the DR correction exists to remove, provided the weights can be estimated.</p>
+  <div class="fig">
+    <div class="fig-hdr">
+      <div class="fig-title">Boosted models, 50 confounders</div>
+    </div>
+    <div class="fig-body">{LEG5}<div class="panels" style="grid-template-columns:1fr">{practice_panel}</div></div>
+    <p class="fig-cap">Average estimated curve over {N_REPS2} simulated datasets, all with the same boosted outcome model. The blue band shows where 90% of the individual curves with balancing weights fall. Dashed black: the true curve. Lines that leave the chart are cut off at its edge.</p>
+  </div>
 
-  <p>Estimating the weights through a density is where it breaks. To test this, the Sim 2 data was extended with weak confounders (16 or 46 extra, correlated, each with a small effect on both dose and outcome; the total amount of confounding is held fixed). Four versions of the curve were compared:</p>
-
-  <div class="dtable-wrap">{table5}</div>
-
-  <ul class="pts">
-    <li><strong>Plug-in gets worse as confounders are added</strong> ({b5(5,'plugin'):.2f} → {b5(50,'plugin'):.2f}): regularisation bias, as expected. (Even at five, its bias is larger than in Sim 2, because these covariates are correlated with each other.)</li>
-    <li><strong>Perfect weights would fix most of it</strong> ({b5(50,'dr_true_weights'):.2f} at 50 confounders).</li>
-    <li><strong>Density-based weights make DR worse, not better</strong> ({b5(50,'dr_density'):.2f}). A boosted model misses part of the dose's mean when it is spread thinly over many weak features, and the density turns small errors in the mean into very large errors in the weights.</li>
-    <li><strong>Weights learned without a density help</strong> ({b5(50,'dr_riesz'):.2f}). These come from automatic debiasing (<a href="https://doi.org/10.3982/ECTA18515" target="_blank" rel="noopener">Chernozhukov, Newey and Singh 2022</a>), which learns the weight by minimising a loss rather than estimating a density.</li>
-  </ul>
-
-  <p>So with many confounders, double robustness only pays off if the weights are estimated well, and density weights are not. In further tests, entropy balancing weights, which directly make the dose uncorrelated with each covariate (<a href="https://doi.org/10.1515/jem-2021-0002" target="_blank" rel="noopener">Tübbicke 2022</a>), did better still: bias {s6.loc[(50,'balancing'),'abs_bias']:.2f} at 50 confounders, with standard errors that matched the real spread. Their 95% bands still covered the truth only {pct(s6.loc[(50,'balancing'),'pointwise'])} of the time, because a small bias remains, so the bands need widening. The package includes these weights and a check that sets the width on your own data (see the repo's README). Simulations 1 to 4 use density weights, which work well with a handful of confounders.</p>
-
+  <p>The S-learner flattens the curve, DR with density weights is far off, and DR with balancing weights recovers the shape. The package includes balancing weights for exactly this case. Their intervals need widening, though, which section 5 comes back to.</p>
 </section>
 
 <!-- 4 -->
@@ -619,13 +551,11 @@ best = model.optimal_dose(a_grid, ("north", "store_17"))             # dose, lo,
   <h3>References</h3>
   <ul class="refs">
     <li>Bach, P., Chernozhukov, V., Kurz, M. S. and Spindler, M. (2022). <a href="https://jmlr.org/papers/v23/21-0862.html" target="_blank" rel="noopener">DoubleML: an object-oriented implementation of double machine learning in Python</a>. <em>Journal of Machine Learning Research</em>, 23(53), 1–6.</li>
-    <li>Chernozhukov, V., Newey, W. and Singh, R. (2022). <a href="https://doi.org/10.3982/ECTA18515" target="_blank" rel="noopener">Automatic debiased machine learning of causal and structural effects</a>. <em>Econometrica</em>, 90(3), 967–1027.</li>
     <li>Chernozhukov, V. et al. (2018). <a href="https://arxiv.org/abs/1608.00060" target="_blank" rel="noopener">Double/debiased machine learning for treatment and structural parameters</a>. <em>The Econometrics Journal</em>, 21(1), C1–C68.</li>
     <li>Colangelo, K. and Lee, Y.-Y. (2020). <a href="https://arxiv.org/abs/2004.03036" target="_blank" rel="noopener">Double debiased machine learning nonparametric inference with continuous treatments</a>. arXiv:2004.03036.</li>
     <li>Eilers, P. and Marx, B. (1996). Flexible smoothing with B-splines and penalties. <em>Statistical Science</em>, 11(2), 89–121.</li>
     <li>Gelman, A. and Hill, J. (2007). <em>Data Analysis Using Regression and Multilevel/Hierarchical Models</em>. Cambridge University Press.</li>
     <li>Hirano, K. and Imbens, G. (2004). The propensity score with continuous treatments. In <em>Applied Bayesian Modeling and Causal Inference from Incomplete-Data Perspectives</em>, Wiley.</li>
-    <li>Kang, J. and Schafer, J. (2007). <a href="https://projecteuclid.org/journals/statistical-science/volume-22/issue-4/Demystifying-Double-Robustness--A-Comparison-of-Alternative-Strategies-for/10.1214/07-STS227.full" target="_blank" rel="noopener">Demystifying double robustness</a>. <em>Statistical Science</em>, 22(4), 523–539.</li>
     <li>Kennedy, E., Ma, Z., McHugh, M. and Small, D. (2017). <a href="https://arxiv.org/abs/1507.00747" target="_blank" rel="noopener">Non-parametric methods for doubly robust estimation of continuous treatment effects</a>. <em>Journal of the Royal Statistical Society: Series B</em>, 79(4), 1229–1245.</li>
     <li>Kim, Y.-J. and Gu, C. (2004). Smoothing spline Gaussian regression: more scalable computation via efficient approximation. <em>Journal of the Royal Statistical Society: Series B</em>, 66(2), 337–356.</li>
     <li>Klosin, S. (2021). <a href="https://arxiv.org/abs/2104.10334" target="_blank" rel="noopener">Automatic double machine learning for continuous treatment effects</a>. arXiv:2104.10334.</li>

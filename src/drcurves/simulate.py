@@ -81,7 +81,7 @@ def sim_hierarchical(n_regions=8, stores_per_region=25, median_store_n=60, seed=
 
 
 # --------------------------------------------------------------------------- 5
-def sim_high_dim(n=3000, p=50, seed=0, weak_share=0.6, return_oracle=False):
+def sim_high_dim(n=3000, p=50, seed=0, weak_share=0.6, return_oracle=False, effect="inverted_u"):
     """Sim 2's design plus many weak confounders.
 
     Four strong nonlinear confounders as in sim_double_robust, plus p - 4 weak
@@ -105,7 +105,7 @@ def sim_high_dim(n=3000, p=50, seed=0, weak_share=0.6, return_oracle=False):
     m = 0.5 * (0.9 * np.sin(1.5 * X[:, 0]) + 0.35 * X[:, 1] ** 2 - 0.4 + 0.3 * (X[:, 2] > 0)) + weak
     s = 0.8 + 0.3 * _sigmoid(2 * X[:, 0])
     A = m + s * rng.normal(size=n)
-    f = CURVES["inverted_u"]
+    f = (lambda a: 1.0 * a) if effect == "linear" else CURVES[effect]
     g = 2.0 * np.sin(1.5 * X[:, 0]) + 0.8 * X[:, 1] ** 2 + 0.5 * X[:, 3] + 2.5 * weak
     Y = f(A) + g + 0.7 * rng.normal(size=n)
     if return_oracle:   # true weight varpi(A)/pi(A|X), for benchmarking only

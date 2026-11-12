@@ -40,6 +40,7 @@ Inputs:
 - `X` can be an array or a DataFrame (non-numeric columns are integer-coded). Group codes are appended automatically (`add_group_codes=True`) so the nuisance models see the groups.
 - Weights: for a continuous `A` the default is `GPS()`, Kennedy et al.'s density-based weights. Their intervals had close to nominal coverage in our simulations.
 - `gps=RieszWeights()` (automatic debiasing) learns the weight varpi(a)/pi(a|x) directly by minimising the Riesz loss with boosted trees; no density is estimated. With 50 confounders, density weights made DR worse than plug-in, while learned weights beat it (Sim 5). **But** the intervals don't account for the bias learned weights leave behind: 95% bands covered about half the time on the Sim 1 data. Use it for the point estimate when there are many confounders, and check intervals with `bootstrap_curves`.
+- `BalancingWeights()`: entropy-balancing weights that decorrelate the dose from the covariates (and their squares). Best with many covariates; population curve only (`groups=None`).
 - `StackedWeights()` (experimental) mixes the two, choosing the mix by held-out Riesz loss. That loss is noisy, dominated by a few extreme weights, so it isn't the default.
 - `A` with ≤ 30 distinct values (tiers, counts) is treated as discrete: `DiscreteGPS` (a classifier over the dose levels) is used automatically, because a continuous density is not a valid weight for a discrete dose.
 - A point mass in a continuous dose (e.g. many zeros) triggers a warning; model "any vs none" separately.
@@ -79,6 +80,34 @@ draws = model.draws(a_grid, path, n_draws=4000)             # curves for any oth
 - `optimal_dose(...)["at_edge"]` is the share of draws whose optimum sits at the end of the grid. If it's large, the optimum may be outside your data.
 - `bootstrap_curves(...)` refits the whole pipeline on resampled rows (within each leaf group; duplicates of a row stay in the same cross-fitting fold). It is the only option that includes nuisance-model uncertainty. The percentile band is pointwise, and it is centred on a smoothed estimate, so it does not capture smoothing bias. Slow; use it to check a decision-driving number. `X` must be numeric (`drcurves.prepare_X`).
 
+### Intervals with many covariates (read this before using on real data)
+
+`experiments/sim6_intervals.py`: population curve, boosted outcome model, Sim 5 data, 15 replications. Coverage of 95% shape bands; SE ratio = reported s.e. / actual spread (1 = right).
+
+| Confounders | Weights | Bias | RMSE | SE ratio | Pointwise | Simultaneous |
+|---|---|---|---|---|---|---|
+| 5 | density | 0.09 | 0.22 | 1.46 | 94% | 87% |
+| 5 | learned | 0.09 | 0.13 | 0.85 | 58% | 7% |
+| 5 | balancing | 0.06 | 0.10 | 0.89 | 76% | 20% |
+| 50 | density | 2.21 | 4.13 | 1.27 | 82% | 20% |
+| 50 | learned | 0.26 | 0.32 | 0.95 | 30% | 0% |
+| 50 | balancing | 0.08 | 0.14 | 1.09 | 72% | 0% |
+
+- **Few covariates:** density weights (the default) give honest intervals.
+- **Many covariates:** density weights break, and learned (Riesz) weights carry too much bias. **`BalancingWeights()`** (entropy balancing for a continuous dose; in-sample, population curve only) is clearly best: lowest error, and standard errors that match the real spread. The bands still under-cover, because a small bias remains; richer balancing bases, prognostic scores, removing the weight cap and undersmoothing didn't remove it.
+- **So calibrate on your own data.** `coverage_check` keeps your real X and doses and simulates outcomes from a known curve, then reports the critical value that gave 95% coverage:
+
+```python
+from drcurves import coverage_check, BalancingWeights, fit_dose_response
+summary, _ = coverage_check(X, A, Y, n_reps=30)              # density / learned / balancing
+print(summary)                                                # coverage, se_ratio, critical values
+model = fit_dose_response(X, A, Y, outcome_model=HGB(), gps=BalancingWeights())
+crit = summary.set_index("weights").loc["balancing", "critical_pointwise"]
+est, lo, hi, _ = model.band(a_grid, simultaneous=False, critical=crit)
+```
+
+Validation: on one 50-covariate dataset, `coverage_check` estimated a pointwise critical value of 3.35 (true value from the full simulation: 3.55) and coverage of 66% (true: 72%). Its simultaneous critical value was too low (4.0 vs 5.5). For whole-curve bands use `n_reps >= 50`, or add a margin. The check assumes unconfoundedness (it tests estimation, not identification) and builds outcomes from a fitted model, so treat it as optimistic.
+
 ### How honest are the 95% intervals?
 
 Monte Carlo coverage (`experiments/sim4_uncertainty.py`; share of 95% intervals containing the truth):
@@ -110,6 +139,8 @@ src/drcurves/
                 bands, contrasts, optimal dose, draws
   bootstrap.py  full-pipeline bootstrap
   riesz.py      RieszWeights: automatic debiasing (weights learned directly, no density)
+  balance.py    BalancingWeights: entropy balancing for a continuous dose
+  check.py      coverage_check: plasmode coverage check and calibration on your data
   simulate.py   the three data-generating processes (true curves known)
 experiments/
   sim1_nonlinear.py               shape: DR curve vs DoubleML θ, and θ under policy shifts
@@ -117,6 +148,7 @@ experiments/
   sim3_hierarchical_shrinkage.py  8 regions x 25 stores: no / complete / partial pooling
   sim4_uncertainty.py             coverage of bands, contrasts and optimal-dose intervals
   sim5_dimension.py               5 / 20 / 50 confounders: plug-in vs DR (density vs Riesz weights)
+  sim6_intervals.py               interval coverage with many confounders: density / learned / balancing
 tools/build_article.py            builds article/index.html from results/
 figures/  results/  article/
 ```
@@ -131,6 +163,7 @@ python experiments/sim3_hierarchical_shrinkage.py 5
 python experiments/sim4_uncertainty.py single 42   # resumable; add a time budget in seconds as 3rd arg
 python experiments/sim4_uncertainty.py stores 15
 python experiments/sim5_dimension.py 10            # resumable
+python experiments/sim6_intervals.py 15            # resumable
 python tools/build_article.py      # -> article/index.html
 pytest
 ```
@@ -151,6 +184,8 @@ Runtime is about 45 minutes on two cores, mostly simulations 2 and 3.
 - Chernozhukov, Newey & Singh (2022). Automatic debiased machine learning of causal and structural effects. *Econometrica* 90(3).
 - Chernozhukov, Newey, Quintas-Martínez & Syrgkanis (2022). RieszNet and ForestRiesz. *ICML*.
 - Valentin, Detommaso, Li, Opper & Brueckner (2025). On double robustness in double machine learning. NeurIPS 2025 Workshop CauScien.
+- Tübbicke (2022). Entropy balancing for continuous treatments. *Journal of Econometric Methods* 11(1), 71–89.
+- Vegetabile et al. (2021). Nonparametric estimation of population average dose-response curves using entropy balancing weights for continuous exposures. *Health Services and Outcomes Research Methodology* 21(1), 69–110.
 - Marra & Wood (2012). Coverage properties of confidence intervals for GAM components. *Scand. J. Statistics* 39(1).
 - Eilers & Marx (1996). Flexible smoothing with B-splines and penalties. *Statistical Science* 11(2).
 

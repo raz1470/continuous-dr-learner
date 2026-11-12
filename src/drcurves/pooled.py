@@ -291,14 +291,18 @@ class HierarchicalDoseResponse:
         return M @ self.coef_[idx] + z @ Lc.T
 
     def band(self, a_grid, path=None, level=0.95, simultaneous=True, centre=False,
-             cov_type=None, n_draws=10000, seed=0):
+             cov_type=None, n_draws=10000, seed=0, critical=None):
         """Confidence band; returns (est, lo, hi, critical_value).
 
         simultaneous=True uses a sup-t critical value (the 95th percentile of
         the largest standardised deviation across the grid), so the band holds
         for the whole curve at once - what you need for statements like "the
-        curve peaks between x and y"."""
+        curve peaks between x and y".
+        critical: use this critical value instead (e.g. the calibrated value
+        from coverage_check), multiplying the standard errors."""
         est, se = self.curve(a_grid, path, centre, cov_type)
+        if critical is not None:      # e.g. calibrated by coverage_check on your data
+            return est, est - critical * se, est + critical * se, float(critical)
         if simultaneous:
             d = self.draws(a_grid, path, n_draws, centre, cov_type, seed) - est
             crit = float(np.quantile(np.max(np.abs(d) / np.maximum(se, 1e-12), axis=1), level))

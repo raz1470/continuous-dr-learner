@@ -8,10 +8,12 @@ from .nuisance import GPS, DiscreteGPS, Nuisances, cross_fit_nuisances, pseudo_o
 from .pooled import HierarchicalDoseResponse
 from .bootstrap import bootstrap_curves
 from .riesz import RieszWeights, StackedWeights
+from .balance import BalancingWeights
+from .check import coverage_check
 
 __all__ = ["GPS", "DiscreteGPS", "Nuisances", "cross_fit_nuisances", "pseudo_outcomes",
            "HierarchicalDoseResponse", "fit_dose_response", "bootstrap_curves", "prepare_X",
-           "RieszWeights", "StackedWeights"]
+           "RieszWeights", "StackedWeights", "BalancingWeights", "coverage_check"]
 
 
 def prepare_X(X, groups=None, add_group_codes=True):

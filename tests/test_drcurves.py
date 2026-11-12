@@ -196,3 +196,34 @@ def test_riesz_weights_track_true_ratio_and_default():
     est, _ = mdl.curve(g)
     t = 1.5 * g - 0.8 * g ** 2
     assert np.sqrt(np.mean(((est - est.mean()) - (t - t.mean())) ** 2)) < 0.25
+
+
+def test_balancing_weights_decorrelate_dose():
+    from drcurves import BalancingWeights
+    rng = np.random.default_rng(9)
+    n = 2000
+    X = rng.normal(size=(n, 5))
+    A = X[:, 0] + 0.5 * X[:, 1] ** 2 + rng.normal(size=n)
+    w = BalancingWeights().fit_weights(X, A)
+    a = A - np.average(A, weights=w)
+    for j in range(5):
+        x = X[:, j] - np.average(X[:, j], weights=w)
+        raw = abs(np.corrcoef(A, X[:, j])[0, 1])
+        bal = abs(np.average(a * x, weights=w)) / np.sqrt(np.average(a ** 2, weights=w) * np.average(x ** 2, weights=w))
+        assert bal < 0.05 and bal <= raw + 1e-9
+
+
+def test_coverage_check_runs():
+    from drcurves import BalancingWeights, coverage_check
+    rng = np.random.default_rng(10)
+    n = 800
+    X = rng.normal(size=(n, 3))
+    A = 0.6 * X[:, 0] + rng.normal(size=n)
+    Y = np.sin(A) + X[:, 0] + rng.normal(size=n)
+    gps = lambda r: GPS(mean_model=LinearRegression(), heteroscedastic=False, residual="gaussian")  # noqa: E731
+    summary, per = coverage_check(X, A, Y, outcome_model=LinearRegression(), n_reps=2, n_folds=2,
+                                  weights={"density": gps, "balancing": lambda r: BalancingWeights()},
+                                  verbose=False)
+    assert set(summary.weights) == {"density", "balancing"}
+    assert summary.pointwise.between(0, 1).all() and len(per) == 4
+    assert (summary.critical_simultaneous >= summary.critical_pointwise).all()

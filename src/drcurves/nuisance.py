@@ -203,7 +203,9 @@ def cross_fit_nuisances(X, A, Y, outcome_model, gps, groups=None, n_folds=5,
             om = clone(outcome_model).fit(_feat(X[tr], A[tr]), Y[tr])
             mu[te] = om.predict(_feat(X[te], A[te]))
             np.add.at(m_tab, (gr, jr), _predict_chunked(lambda x, a: om.predict(_feat(x, a)), Xr, ar))
-        if gps is not None and getattr(gps, "is_ratio", False):
+        if gps is not None and getattr(gps, "in_sample", False):
+            pass                 # in-sample weights (balancing) are computed once below
+        elif gps is not None and getattr(gps, "is_ratio", False):
             # weight learned directly (automatic debiasing): no density needed
             gm = clone(gps).fit(X[tr], A[tr], None if groups is None else g[tr])
             pi[te] = 1.0
@@ -222,7 +224,10 @@ def cross_fit_nuisances(X, A, Y, outcome_model, gps, groups=None, n_folds=5,
         idx = g == k
         m[idx] = np.interp(A[idx], a_grid, m_tab[k])
         varpi[idx] = np.interp(A[idx], a_grid, w_tab[k])
-    if gps is not None and getattr(gps, "is_ratio", False):
+    if gps is not None and getattr(gps, "in_sample", False):
+        pi = np.ones(n)
+        varpi = gps.fit_weights(X, A, None if groups is None else g, Y=Y)
+    elif gps is not None and getattr(gps, "is_ratio", False):
         varpi = ratio_w          # pseudo-outcomes use varpi / pi = learned weight
     return Nuisances(mu=mu, pi=pi, varpi=varpi, m=m)
 

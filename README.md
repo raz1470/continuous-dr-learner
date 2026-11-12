@@ -38,7 +38,9 @@ new, _    = model.curve(a_grid, ("r0", "unseen"))   # unseen store -> its region
 
 Inputs:
 - `X` can be an array or a DataFrame (non-numeric columns are integer-coded). Group codes are appended automatically (`add_group_codes=True`) so the nuisance models see the groups.
-- Weights: for a continuous `A` the default is `RieszWeights` (automatic debiasing): the weight varpi(a)/pi(a|x) is learned directly by minimising the Riesz loss with boosted trees, with no density estimated. In tests with 50 confounders, density weights made DR worse than plug-in while learned weights beat it (see Sim 5). `gps=GPS()` gives Kennedy et al.'s density-based weights.
+- Weights: for a continuous `A` the default is `GPS()`, Kennedy et al.'s density-based weights. Their intervals had close to nominal coverage in our simulations.
+- `gps=RieszWeights()` (automatic debiasing) learns the weight varpi(a)/pi(a|x) directly by minimising the Riesz loss with boosted trees; no density is estimated. With 50 confounders, density weights made DR worse than plug-in, while learned weights beat it (Sim 5). **But** the intervals don't account for the bias learned weights leave behind: 95% bands covered about half the time on the Sim 1 data. Use it for the point estimate when there are many confounders, and check intervals with `bootstrap_curves`.
+- `StackedWeights()` (experimental) mixes the two, choosing the mix by held-out Riesz loss. That loss is noisy, dominated by a few extreme weights, so it isn't the default.
 - `A` with ≤ 30 distinct values (tiers, counts) is treated as discrete: `DiscreteGPS` (a classifier over the dose levels) is used automatically, because a continuous density is not a valid weight for a discrete dose.
 - A point mass in a continuous dose (e.g. many zeros) triggers a warning; model "any vs none" separately.
 - `fold_groups=` keeps ids (e.g. customers) together in cross-fitting; `cluster=` makes robust covariances cluster-robust.

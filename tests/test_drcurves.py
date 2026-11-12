@@ -187,9 +187,10 @@ def test_riesz_weights_track_true_ratio_and_default():
     true = np.array([norm.pdf(a, m, 1).mean() for a in A[:500]]) / norm.pdf(A[:500], m[:500], 1)
     w = RieszWeights().fit(X[500:], A[500:]).weight(X[:500], A[:500])
     assert np.corrcoef(np.log(w + 1e-3), np.log(true))[0, 1] > 0.6
-    # default weight model for a continuous dose is RieszWeights
+    # learned weights plug into the pipeline in place of a GPS
     Y = 1.5 * A - 0.8 * A ** 2 + X[:, 0] + rng.normal(size=n)
-    mdl = fit_dose_response(X, A, Y, outcome_model=make_pipeline(PolynomialFeatures(2), LinearRegression()))
+    mdl = fit_dose_response(X, A, Y, outcome_model=make_pipeline(PolynomialFeatures(2), LinearRegression()),
+                            gps=RieszWeights())
     assert np.allclose(mdl.nuisances_.pi, 1.0)
     g = np.linspace(-1.5, 1.5, 30)
     est, _ = mdl.curve(g)

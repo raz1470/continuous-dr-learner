@@ -403,7 +403,9 @@ select {{ font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px so
 
   <div class="eqn">r = argmin E[ r(X, A)² ] − 2 E[ r(X, A′) ]</div>
 
-  <p>where A′ is a dose shuffled across rows, so it carries no information about X. The package minimises this loss with gradient-boosted trees. It also gives the trees the dose's predicted mean and the residual (from a ridge plus boosting regression of A on X) as extra features, because the weight depends mainly on how unusual a dose is for that unit. This is now the package's default for continuous doses. Simulations 1 to 4 used density weights, which work well with few confounders.</p>
+  <p>where A′ is a dose shuffled across rows, so it carries no information about X. The package minimises this loss with gradient-boosted trees. It also gives the trees the dose's predicted mean and the residual (from a ridge plus boosting regression of A on X) as extra features, because the weight depends mainly on how unusual a dose is for that unit. In the package it is <code>gps=RieszWeights()</code>.</p>
+
+  <p>There is a catch, found when rerunning the coverage study of section 5 with learned weights. They give more accurate curves, but they leave a small bias that the intervals do not know about. Density weights are noisier, and their bands widen to match. On the Sim 1 data, 95% pointwise bands built on learned weights covered the truth only about half the time, against 95% with density weights. So the package keeps density weights as the default, and Simulations 1 to 4 use them. Use learned weights when you have many confounders and need the best point estimate, and check any interval from them with the bootstrap.</p>
 
 </section>
 

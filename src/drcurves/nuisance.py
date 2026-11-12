@@ -208,7 +208,7 @@ def cross_fit_nuisances(X, A, Y, outcome_model, gps, groups=None, n_folds=5,
             gm = clone(gps).fit(X[tr], A[tr], None if groups is None else g[tr])
             pi[te] = 1.0
             ratio_w = ratio_w if "ratio_w" in dir() else np.full(n, np.nan)
-            ratio_w[te] = gm.weight(X[te], A[te])
+            ratio_w[te] = gm.weight(X[te], A[te], None if groups is None else g[te])
         elif gps is not None:
             gm = clone(gps).fit(X[tr], A[tr])
             pi[te] = gm.density(X[te], A[te])

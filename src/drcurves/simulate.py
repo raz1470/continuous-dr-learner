@@ -43,11 +43,6 @@ def sim_double_robust(n=3000, effect="inverted_u", seed=0):
     f = (lambda a: 1.0 * a) if effect == "linear" else CURVES["inverted_u"]
     g = 2.0 * np.sin(1.5 * X[:, 0]) + 0.8 * X[:, 1] ** 2 + 0.5 * X[:, 3]
     Y = f(A) + g + 0.7 * rng.normal(size=n)
-    if return_oracle:   # true weight varpi(A)/pi(A|X), for benchmarking only
-        from scipy.stats import norm
-        pi = norm.pdf(A, m, s)
-        varpi = np.array([norm.pdf(a, m, s).mean() for a in A])
-        return X, A, Y, f, varpi / pi
     return X, A, Y, f
 
 

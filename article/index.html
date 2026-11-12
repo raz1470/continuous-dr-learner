@@ -362,16 +362,10 @@ select { font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px sol
     <li><strong>Plug-in gets worse as confounders are added</strong> (0.13 → 0.36): regularisation bias, as expected. (Even at five, its bias is larger than in Sim 2, because these covariates are correlated with each other.)</li>
     <li><strong>Perfect weights would fix most of it</strong> (0.14 at 50 confounders).</li>
     <li><strong>Density-based weights make DR worse, not better</strong> (2.45). A boosted model misses part of the dose's mean when it is spread thinly over many weak features, and the density turns small errors in the mean into very large errors in the weights.</li>
-    <li><strong>Weights learned directly recover most of the benefit</strong> (0.25, against 0.36 for plug-in).</li>
+    <li><strong>Weights learned without a density help</strong> (0.25). These come from automatic debiasing (<a href="https://doi.org/10.3982/ECTA18515" target="_blank" rel="noopener">Chernozhukov, Newey and Singh 2022</a>), which learns the weight by minimising a loss rather than estimating a density.</li>
   </ul>
 
-  <p>The fix is <em>automatic debiasing</em> (<a href="https://doi.org/10.3982/ECTA18515" target="_blank" rel="noopener">Chernozhukov, Newey and Singh 2022</a>; <a href="https://arxiv.org/abs/2110.03031" target="_blank" rel="noopener">Chernozhukov et al. 2022</a>). The weight r(x, a) = ϖ(a)/π(a | x) is the unique function that minimises a simple loss, so it can be learned with any machine learning model, without estimating a density:</p>
-
-  <div class="eqn">r = argmin E[ r(X, A)² ] − 2 E[ r(X, A′) ]</div>
-
-  <p>where A′ is a dose shuffled across rows, so it carries no information about X. The package minimises this loss with gradient-boosted trees. It also gives the trees the dose's predicted mean and the residual (from a ridge plus boosting regression of A on X) as extra features, because the weight depends mainly on how unusual a dose is for that unit. In the package it is <code>gps=RieszWeights()</code>.</p>
-
-  <p>There is a catch, found when rerunning the coverage study of section 5 with learned weights. They give more accurate curves, but they leave a small bias that the intervals do not know about. Density weights are noisier, and their bands widen to match. On the Sim 1 data, 95% pointwise bands built on learned weights covered the truth only about half the time, against 95% with density weights. So the package keeps density weights as the default, and Simulations 1 to 4 use them. Use learned weights when you have many confounders and need the best point estimate, and check any interval from them with the bootstrap.</p>
+  <p>So with many confounders, double robustness only pays off if the weights are estimated well, and density weights are not. In further tests, entropy balancing weights, which directly make the dose uncorrelated with each covariate (<a href="https://doi.org/10.1515/jem-2021-0002" target="_blank" rel="noopener">Tübbicke 2022</a>), did better still: bias 0.08 at 50 confounders, with standard errors that matched the real spread. Their 95% bands still covered the truth only 72% of the time, because a small bias remains, so the bands need widening. The package includes these weights and a check that sets the width on your own data (see the repo's README). Simulations 1 to 4 use density weights, which work well with a handful of confounders.</p>
 
 </section>
 
@@ -513,6 +507,7 @@ best = model.optimal_dose(a_grid, ("north", "store_17"))             # dose, lo,
   <ul class="pts">
     <li><strong>Unmeasured confounding.</strong> X must explain how doses were assigned. Double robustness protects against a wrong model, not a missing variable.</li>
     <li><strong>Poor overlap.</strong> If some kinds of unit only ever get low doses, nothing in the data says what high doses would do for them. Check the weights, and restrict the dose range you report.</li>
+    <li><strong>Many confounders.</strong> With dozens of features, density weights break and the intervals in section 5 are too narrow. Use balancing weights and widen the bands using the package's coverage check on your own data.</li>
     <li><strong>Doses set at the group level.</strong> If every customer in a store gets the store's discount, the store is the unit of analysis. Aggregate to stores first; row-level pooling across customers overstates what you know.</li>
     <li><strong>A spike at zero.</strong> Zero spend next to a continuous range of positive spend is a mixture the density model cannot represent. The package warns; analyse "any versus none" separately from "how much".</li>
     <li><strong>Crossed groupings.</strong> Store × channel, where channels are not nested in stores, is not supported. Each level must sit inside the one above.</li>
@@ -550,7 +545,7 @@ best = model.optimal_dose(a_grid, ("north", "store_17"))             # dose, lo,
 
   <ul class="pts">
     <li><strong>Shape.</strong> θ is an average slope weighted by where the doses fall, so it moves with the treatment policy. Estimate θ(a) instead.</li>
-    <li><strong>Robustness.</strong> The default partialling-out score breaks when the treatment model is wrong; the IV-type score and ADML fix that, but only for θ. The DR pseudo-outcome survives either model being wrong for the whole curve. With few confounders a good outcome model alone can match it; with many, DR pays off, but only if the weights are learned directly rather than through a density.</li>
+    <li><strong>Robustness.</strong> The default partialling-out score breaks when the treatment model is wrong; the IV-type score and ADML fix that, but only for θ. The DR pseudo-outcome survives either model being wrong for the whole curve. With few confounders a good outcome model alone can match it; with many, DR pays off only if the weights are estimated well, which rules out density weights.</li>
     <li><strong>Many curves.</strong> Looping over groups gives noise for the small ones. Partial pooling gives every group a curve, shrinks the small ones toward their parent, and lets the big ones speak for themselves.</li>
   </ul>
 
@@ -562,7 +557,6 @@ best = model.optimal_dose(a_grid, ("north", "store_17"))             # dose, lo,
   <ul class="refs">
     <li>Bach, P., Chernozhukov, V., Kurz, M. S. and Spindler, M. (2022). <a href="https://jmlr.org/papers/v23/21-0862.html" target="_blank" rel="noopener">DoubleML: an object-oriented implementation of double machine learning in Python</a>. <em>Journal of Machine Learning Research</em>, 23(53), 1–6.</li>
     <li>Chernozhukov, V., Newey, W. and Singh, R. (2022). <a href="https://doi.org/10.3982/ECTA18515" target="_blank" rel="noopener">Automatic debiased machine learning of causal and structural effects</a>. <em>Econometrica</em>, 90(3), 967–1027.</li>
-    <li>Chernozhukov, V., Newey, W., Quintas-Martínez, V. and Syrgkanis, V. (2022). <a href="https://arxiv.org/abs/2110.03031" target="_blank" rel="noopener">RieszNet and ForestRiesz: automatic debiased machine learning with neural nets and random forests</a>. <em>ICML</em>, PMLR 162.</li>
     <li>Chernozhukov, V. et al. (2018). <a href="https://arxiv.org/abs/1608.00060" target="_blank" rel="noopener">Double/debiased machine learning for treatment and structural parameters</a>. <em>The Econometrics Journal</em>, 21(1), C1–C68.</li>
     <li>Colangelo, K. and Lee, Y.-Y. (2020). <a href="https://arxiv.org/abs/2004.03036" target="_blank" rel="noopener">Double debiased machine learning nonparametric inference with continuous treatments</a>. arXiv:2004.03036.</li>
     <li>Eilers, P. and Marx, B. (1996). Flexible smoothing with B-splines and penalties. <em>Statistical Science</em>, 11(2), 89–121.</li>
@@ -573,6 +567,7 @@ best = model.optimal_dose(a_grid, ("north", "store_17"))             # dose, lo,
     <li>Kim, Y.-J. and Gu, C. (2004). Smoothing spline Gaussian regression: more scalable computation via efficient approximation. <em>Journal of the Royal Statistical Society: Series B</em>, 66(2), 337–356.</li>
     <li>Klosin, S. (2021). <a href="https://arxiv.org/abs/2104.10334" target="_blank" rel="noopener">Automatic double machine learning for continuous treatment effects</a>. arXiv:2104.10334.</li>
     <li>Marra, G. and Wood, S. (2012). <a href="https://doi.org/10.1111/j.1467-9469.2011.00760.x" target="_blank" rel="noopener">Coverage properties of confidence intervals for generalized additive model components</a>. <em>Scandinavian Journal of Statistics</em>, 39(1), 53–74.</li>
+    <li>Tübbicke, S. (2022). <a href="https://doi.org/10.1515/jem-2021-0002" target="_blank" rel="noopener">Entropy balancing for continuous treatments</a>. <em>Journal of Econometric Methods</em>, 11(1), 71–89.</li>
     <li>Valentin, S., Detommaso, G., Li, Y., Opper, M. and Brueckner, M. (2025). <a href="https://neurips.cc/virtual/2025/124095" target="_blank" rel="noopener">On double robustness in double machine learning</a>. NeurIPS 2025 Workshop CauScien.</li>
   </ul>
 </section>

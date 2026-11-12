@@ -14,7 +14,7 @@ from svg import funnel_panel, hist_panel, legend, line_panel  # noqa: E402
 ROOT = Path(__file__).resolve().parents[1]
 RES = ROOT / "results"
 CSS = (ROOT / "tools" / "article.css").read_text()
-REPO = "https://github.com/raz1470/continuous-treatments"
+REPO = "https://github.com/raz1470/continuous-dr-learner"
 
 BLUE, ORANGE, AQUA, YELLOW, INK, GREY = "#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#111827", "#6b7280"
 

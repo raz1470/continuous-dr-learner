@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from svg import funnel_panel, legend, line_panel  # noqa: E402
+from svg import funnel_panel, hist_panel, legend, line_panel  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 RES = ROOT / "results"
@@ -206,6 +206,25 @@ for key, title, col in [("partial", "Partial pooling", BLUE), ("none", "No pooli
     sub = f"RMSE {rmse_by(eff_err[key], small_m):.2f} in stores under 25 obs, {rmse_by(eff_err[key], big_m):.2f} at 150+"
     funnel.append(funnel_panel(st_n, eff_err[key], title, sub, col, ylim=(-lim3, lim3)))
 n_fail = int(np.isnan(eff_err["doubleml"]).sum())
+
+# ===================================================================== sim 4 example
+eb = json.loads((RES / "sim4_example_band.json").read_text())
+gE = np.array(eb["grid"])
+est_e = np.array(eb["est"])
+zero = np.zeros_like(est_e)
+band_panel = line_panel(gE, [
+    {"y": zero, "lo": np.array(eb["lo_s"]) - est_e, "hi": np.array(eb["hi_s"]) - est_e, "color": BLUE, "width": 0, "opacity": 0},
+    {"y": zero, "lo": np.array(eb["lo_p"]) - est_e, "hi": np.array(eb["hi_p"]) - est_e, "color": BLUE, "width": 2},
+    {"y": np.array(eb["truth"]) - est_e, "color": INK, "dash": "5 4", "width": 2},
+], "Is the true curve inside the bands?",
+   f"Everything relative to the estimate (the blue line at 0). Inner band: each dose, ±{eb['z_p']:.2f} s.e. Outer: whole curve, ±{eb['z_s']:.2f} s.e.")
+op = eb["opt"]
+peak_panel = hist_panel(op["draws"], "Where the peak is",
+                        f"Estimate {f2(op['dose'])}, 95% interval {f2(op['lo'])} to {f2(op['hi'])}",
+                        bins=28, color=BLUE, shade=(op["lo"], op["hi"]),
+                        marks=[(eb["true_peak"], "true peak", "5 4")], xlabel="Dose at which the curve peaks")
+ct = eb["contrast"]
+LEG4 = legend([("True curve", INK, "5 4"), ("Estimate and its 95% bands", BLUE, "")])
 
 explorer_data = json.dumps({"grid": s3["grid"], "stores": [
     {k: d[k] for k in ["store", "region", "n", "truth", "none", "complete", "partial", "partial_se"]} for d in stores]})
@@ -517,6 +536,17 @@ best = model.optimal_dose(a_grid, ("north", "store_17"))             # dose, lo,
     <li><strong>Contrasts.</strong> The change from one dose to another, or the gap between two groups at the same dose. These are linear in the spline coefficients, so their standard errors are exact given the coefficient covariance.</li>
     <li><strong>Optimal dose.</strong> The argmax of each drawn curve gives an interval for where the peak is. <code>at_edge</code> reports how often the peak lands at the end of the observed doses, a warning that the true optimum may lie outside your data.</li>
   </ul>
+
+  <div class="fig">
+    <div class="fig-hdr">
+      <div class="fig-title">What the intervals look like</div>
+      <div class="fig-sub">One dataset from Sim 1 (inverted U, 4,000 units), default settings</div>
+    </div>
+    <div class="fig-body">{LEG4}<div class="panels">{band_panel}{peak_panel}</div></div>
+    <p class="fig-cap">Right: the peak of each of 4,000 curves drawn from the fitted model; the shaded range is the 95% interval.</p>
+  </div>
+
+  <p>The whole-curve band is about {eb['z_s'] / eb['z_p']:.1f} times as wide as the dose-by-dose one, and it is the one to use before saying anything about the shape. This example shows why: at the highest doses the true curve drifts just outside the dose-by-dose band, but it stays inside the whole-curve band throughout. The peak is pinned down to a range rather than a point ({f2(op['lo'])} to {f2(op['hi'])}, with the true peak at {f2(eb['true_peak'])}), which is usually the more honest answer to "what dose should we use?". Moving the dose from {f2(ct['a_lo'])} to {f2(ct['a_hi'])} changes the outcome by {f2(ct['est'])} ± {1.96 * ct['se']:.2f} (truth {f2(ct['truth'])}).</p>
 
   <p>The covariance matters more than the method. Penalised splines and shrinkage are biased on purpose, and a standard sandwich covariance treats the fitted curve as if it were unbiased. The default is instead the posterior covariance of the equivalent Bayesian model, σ²(X′X + P)⁻¹ with P the penalty, which is what <code>mgcv</code> uses for its intervals. Its intervals widen where the penalty pulls the curve. <a href="https://doi.org/10.1111/j.1467-9469.2011.00760.x" target="_blank" rel="noopener">Marra and Wood (2012)</a> show this gives close to nominal coverage averaged across the curve, rather than at every point.</p>
 

@@ -155,3 +155,35 @@ def funnel_panel(n, err, title, sub="", color="#2a78d6", ylim=(-2, 2), w=340, h=
     out.append("</svg>")
     head = f'<div class="panel-title">{title}</div>' + (f'<div class="panel-sub">{sub}</div>' if sub else "")
     return f"<div>{head}{''.join(out)}</div>"
+
+
+def hist_panel(values, title, sub="", bins=30, color="#2a78d6", marks=(), shade=None,
+               xlabel="Dose", w=340, h=200):
+    """Histogram with optional vertical marks [(x, label, dash)] and a shaded x-range."""
+    v = np.asarray(values, float)
+    lo, hi = np.quantile(v, [0.001, 0.999])
+    pad = 0.15 * (hi - lo + 1e-9)
+    xs = [m[0] for m in marks] + ([shade[0], shade[1]] if shade else [])
+    lo, hi = min([lo - pad] + xs), max([hi + pad] + xs)
+    counts, edges = np.histogram(v, bins=bins, range=(lo, hi))
+    L, R, T, B = 20, w - 10, 14, h - 34
+    sx = lambda x: L + (x - lo) / (hi - lo) * (R - L)  # noqa: E731
+    sy = lambda c: B - c / counts.max() * (B - T)  # noqa: E731
+    out = [f'<svg class="chart" viewBox="0 0 {w} {h}">']
+    if shade:
+        out.append(f'<rect x="{sx(shade[0]):.1f}" y="{T}" width="{sx(shade[1]) - sx(shade[0]):.1f}" '
+                   f'height="{B - T}" fill="{color}" opacity="0.1"/>')
+    for c, e0, e1 in zip(counts, edges[:-1], edges[1:]):
+        if c:
+            out.append(f'<rect x="{sx(e0) + 0.5:.1f}" y="{sy(c):.1f}" width="{max(sx(e1) - sx(e0) - 1, 0.5):.1f}" '
+                       f'height="{B - sy(c):.1f}" fill="{color}" opacity="0.75"/>')
+    for x, lab, dash in marks:
+        out.append(f'<line x1="{sx(x):.1f}" x2="{sx(x):.1f}" y1="{T}" y2="{B}" stroke="{INK}" '
+                   f'stroke-width="1.6" stroke-dasharray="{dash}"/>'
+                   f'<text x="{sx(x) - 4:.1f}" y="{T + 10}" text-anchor="end" font-size="10" fill="{INK}">{lab}</text>')
+    for t in _nice_ticks(lo, hi, 4):
+        out.append(f'<text x="{sx(t):.1f}" y="{B + 16}" text-anchor="middle" font-size="11" fill="{MUTED}">{_fmt(t)}</text>')
+    out.append(f'<line x1="{L}" x2="{R}" y1="{B}" y2="{B}" stroke="{MUTED}"/>'
+               f'<text x="{(L + R) / 2}" y="{h - 4}" text-anchor="middle" font-size="11" fill="{MUTED}">{xlabel}</text></svg>')
+    head = f'<div class="panel-title">{title}</div>' + (f'<div class="panel-sub">{sub}</div>' if sub else "")
+    return f"<div>{head}{''.join(out)}</div>"

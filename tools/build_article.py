@@ -44,6 +44,25 @@ N_REPS3 = int(s3rmse.rep.nunique())
 s4a = pd.read_csv(RES / "sim4_single_summary.csv").set_index("cov_type")
 s4b = pd.read_csv(RES / "sim4_stores_summary.csv").set_index(["cov_type", "size_band"])
 N_REPS4A = int(pd.read_csv(RES / "sim4_single_reps.csv").rep.nunique())
+s5 = pd.read_csv(RES / "sim5_dimension_summary.csv").set_index(["p", "estimator"])
+N_REPS5 = int(s5.reps.min())
+
+
+def b5(p, est):
+    return float(s5.loc[(p, est), "abs_bias"])
+
+
+rows5 = []
+for est, lab in [("plugin", "Plug-in (outcome model only)"), ("dr_density", "DR, density weights"),
+                 ("dr_riesz", "DR, learned (Riesz) weights"), ("dr_true_weights", "DR, true weights (benchmark)")]:
+    vals = [b5(p, est) for p in (5, 20, 50)]
+    best = min(b5(p, e) for p in (5, 20, 50) for e in ("plugin", "dr_density", "dr_riesz"))
+    cells = "".join(f"<td class='num'>{v:.2f}</td>" for v in vals)
+    rows5.append(f"<tr><td>{lab}</td>{cells}</tr>")
+table5 = ("<table class='dtable'><caption>Average absolute bias of the mean estimated curve, boosted outcome model, "
+          f"n = 3,000, {N_REPS5} replications per column</caption><thead><tr><th>Estimator</th>"
+          "<th class='num'>5 confounders</th><th class='num'>20</th><th class='num'>50</th></tr></thead><tbody>"
+          + "".join(rows5) + "</tbody></table>")
 N_REPS4B = int(pd.read_csv(RES / "sim4_stores_reps.csv").rep.nunique())
 
 
@@ -270,7 +289,7 @@ select {{ font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px so
 
   <div class="eqn">ξ = (Y − μ(X, A)) · ϖ(A) / π(A | X) + m(A)</div>
 
-  <p>where m(a) is the outcome model averaged over everyone's X at dose a, and ϖ(a) is the marginal density of the dose. The first term is an inverse-propensity weighted residual and the second a regression prediction. If the outcome model is right, the residuals average to zero and m(a) is the answer. If the propensity model is right, the weighted residual corrects whatever m(a) got wrong. That is what doubly robust means: either model can be wrong, as long as one of them is right.</p>
+  <p>where m(a) is the outcome model averaged over everyone's X at dose a, and ϖ(a) is the marginal density of the dose. The first term is an inverse-propensity weighted residual and the second a regression prediction. If the outcome model is right, the residuals average to zero and m(a) is the answer. If the propensity model is right, the weighted residual corrects whatever m(a) got wrong. That is what doubly robust means: either model can be wrong, as long as one of them is right. The ratio ϖ(A)/π(A | X) acts as a weight; section 3 shows it is better learned directly than built from a density when there are many confounders.</p>
 
   <p>The binary-treatment AIPW estimator in DoubleML's <code>DoubleMLIRM</code> works the same way. The difference is that π is a density rather than a probability, and the final step is a curve rather than a mean.</p>
 </section>
@@ -332,7 +351,7 @@ select {{ font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px so
 
   <div class="dtable-wrap">{tablep}</div>
 
-  <p>With the default score, a wrong treatment model biases θ by {f2(p2('partialling out','right','wrong'), True)}. That looks small, but the intervals contain the truth in {pct(p2('partialling out','right','wrong','coverage'))} of replications, even though the outcome model is correct. The partialling-out score is only protected against errors in the outcome model. The IV-type score is doubly robust: bias {f2(p2('IV-type','right','wrong'), True)} and {pct(p2('IV-type','right','wrong','coverage'))} coverage in the same row. So DoubleML can give you double robustness if you change the score away from the default. What it cannot give you is a doubly robust curve: the robustness is for θ, the single slope from section 2. The last row, with boosted models for both, shows the same pattern in practice: {pct(p2('partialling out','boosted','boosted','coverage'))} coverage with the default score against {pct(p2('IV-type','boosted','boosted','coverage'))} with IV-type.</p>
+  <p>With the default score, a wrong treatment model biases θ by {f2(p2('partialling out','right','wrong'), True)}. That looks small, but the intervals contain the truth in {pct(p2('partialling out','right','wrong','coverage'))} of replications, even though the outcome model is correct. The partialling-out score is only protected against errors in the outcome model. The IV-type score is doubly robust: bias {f2(p2('IV-type','right','wrong'), True)} and {pct(p2('IV-type','right','wrong','coverage'))} coverage in the same row. So DoubleML can give you double robustness if you change the score away from the default. The same point is made formally by <a href="https://neurips.cc/virtual/2025/124095" target="_blank" rel="noopener">Valentin et al. (2025)</a>, who show the partialling-out (Robinson) estimator depends on the treatment model, and propose an augmented estimator (ADML) that is doubly robust for θ. What none of these give you is a doubly robust curve: the robustness is for θ, the single slope from section 2. The last row, with boosted models for both, shows the same pattern in practice: {pct(p2('partialling out','boosted','boosted','coverage'))} coverage with the default score against {pct(p2('IV-type','boosted','boosted','coverage'))} with IV-type.</p>
 
   <h3>The curve</h3>
 
@@ -363,7 +382,29 @@ select {{ font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px so
 
   <p>Double robustness is about bias, not noise. When the outcome model is badly wrong the residuals are large, and multiplying them by inverse density weights makes the DR curve vary more between datasets (sd {c2('wrong','right','dr','sd'):.2f} against {c2('right','right','dr','sd'):.2f} when both are right). <a href="https://projecteuclid.org/journals/statistical-science/volume-22/issue-4/Demystifying-Double-Robustness--A-Comparison-of-Alternative-Strategies-for/10.1214/07-STS227.full" target="_blank" rel="noopener">Kang and Schafer (2007)</a> made the same point for binary treatments: when the weights are extreme, DR can do worse than a good regression.</p>
 
-  <p>The last row is what you would do in practice: boosted models for both. Here plug-in clearly wins: error {c2('boosted','boosted','plugin'):.2f} against {c2('boosted','boosted','dr'):.2f} for DR, and IPW is far behind at {c2('boosted','boosted','ipw'):.2f}. When both nuisance models are good but not perfect, DR adds the product of their errors back in, and with an imperfect boosted density that product is not small. This is the Kang and Schafer point again: double robustness is insurance against one model being badly wrong, and it has a cost when neither is. You rarely know in advance which situation you are in. If you trust your outcome model much more than your density model, report the plug-in curve alongside DR, and treat a large gap between them as a warning.</p>
+  <p>The last row is what you would do in practice: boosted models for both. Here plug-in wins: error {c2('boosted','boosted','plugin'):.2f} against {c2('boosted','boosted','dr'):.2f} for DR, with IPW far behind at {c2('boosted','boosted','ipw'):.2f}. When both nuisance models are good but not perfect, DR adds the product of their errors back in, and an imperfect boosted density makes that product noticeable. But this simulation has only four confounders, and with four smooth confounders and 3,000 rows a boosted outcome model has almost no regularisation bias left to correct. That is not the situation double machine learning was built for.</p>
+
+  <h3>With many confounders</h3>
+
+  <p>Real problems rarely have four confounders. Customer-level analyses typically have dozens of features, most with small effects. A regularised outcome model then shrinks the dose's effect and lets correlated features absorb part of it, so the plug-in curve flattens. This is the regularisation bias that the DR correction exists to remove, provided the weights can be estimated.</p>
+
+  <p>Estimating the weights through a density is where it breaks. To test this, the Sim 2 data was extended with weak confounders (16 or 46 extra, correlated, each with a small effect on both dose and outcome; the total amount of confounding is held fixed). Four versions of the curve were compared:</p>
+
+  <div class="dtable-wrap">{table5}</div>
+
+  <ul class="pts">
+    <li><strong>Plug-in gets worse as confounders are added</strong> ({b5(5,'plugin'):.2f} → {b5(50,'plugin'):.2f}): regularisation bias, as expected. (Even at five, its bias is larger than in Sim 2, because these covariates are correlated with each other.)</li>
+    <li><strong>Perfect weights would fix most of it</strong> ({b5(50,'dr_true_weights'):.2f} at 50 confounders).</li>
+    <li><strong>Density-based weights make DR worse, not better</strong> ({b5(50,'dr_density'):.2f}). A boosted model misses part of the dose's mean when it is spread thinly over many weak features, and the density turns small errors in the mean into very large errors in the weights.</li>
+    <li><strong>Weights learned directly recover most of the benefit</strong> ({b5(50,'dr_riesz'):.2f}, against {b5(50,'plugin'):.2f} for plug-in).</li>
+  </ul>
+
+  <p>The fix is <em>automatic debiasing</em> (<a href="https://doi.org/10.3982/ECTA18515" target="_blank" rel="noopener">Chernozhukov, Newey and Singh 2022</a>; <a href="https://arxiv.org/abs/2110.03031" target="_blank" rel="noopener">Chernozhukov et al. 2022</a>). The weight r(x, a) = ϖ(a)/π(a | x) is the unique function that minimises a simple loss, so it can be learned with any machine learning model, without estimating a density:</p>
+
+  <div class="eqn">r = argmin E[ r(X, A)² ] − 2 E[ r(X, A′) ]</div>
+
+  <p>where A′ is a dose shuffled across rows, so it carries no information about X. The package minimises this loss with gradient-boosted trees. It also gives the trees the dose's predicted mean and the residual (from a ridge plus boosting regression of A on X) as extra features, because the weight depends mainly on how unusual a dose is for that unit. This is now the package's default for continuous doses. Simulations 1 to 4 used density weights, which work well with few confounders.</p>
+
 </section>
 
 <!-- 4 -->
@@ -463,7 +504,7 @@ new, _ = model.curve(a_grid, ("r0", "a_new_store"))    # unseen store: falls bac
 
   <ol class="pts">
     <li><strong>Overlap.</strong> Look at the weights ϖ(A)/π(A | X). A long right tail, or a small effective sample size share, means some doses are rare for some kinds of unit, and the curve there is an extrapolation. Report the curve over the doses you actually observe; the package warns if you ask for doses outside them. Weights are capped at the 99th percentile by default. The cap adds a little bias; without it, a handful of near-zero density estimates can swamp the curve. <code>max_weight_quantile</code> sets the trade-off.</li>
-    <li><strong>The GPS.</strong> For a continuous dose, check that the residuals of the dose model look roughly the same shape across units. The default uses a kernel density for that shape, which copes with skew and heavy tails better than a normal error.</li>
+    <li><strong>The weights.</strong> For a continuous dose the default learns the weights directly (automatic debiasing). If you switch to density weights with <code>gps=GPS()</code>, check that the dose model's residuals look roughly the same shape across units.</li>
     <li><strong>Shrinkage.</strong> Read the chosen penalties. Very large ones mean the level adds little beyond its parent; very small ones mean the groups really are different. Groups with a constant dose have no curve of their own to estimate and simply inherit their parent's.</li>
   </ol>
 
@@ -541,7 +582,7 @@ best = model.optimal_dose(a_grid, ("north", "store_17"))             # dose, lo,
 
   <ul class="pts">
     <li><strong>Shape.</strong> θ is an average slope weighted by where the doses fall, so it moves with the treatment policy. Estimate θ(a) instead.</li>
-    <li><strong>Robustness.</strong> The default partialling-out score breaks when the treatment model is wrong; the IV-type score fixes that, but only for θ. The DR pseudo-outcome survives either model being wrong for the whole curve. It is insurance, not a free lunch: when both models are merely imperfect, a good outcome model on its own can do better.</li>
+    <li><strong>Robustness.</strong> The default partialling-out score breaks when the treatment model is wrong; the IV-type score and ADML fix that, but only for θ. The DR pseudo-outcome survives either model being wrong for the whole curve. With few confounders a good outcome model alone can match it; with many, DR pays off, but only if the weights are learned directly rather than through a density.</li>
     <li><strong>Many curves.</strong> Looping over groups gives noise for the small ones. Partial pooling gives every group a curve, shrinks the small ones toward their parent, and lets the big ones speak for themselves.</li>
   </ul>
 
@@ -552,6 +593,8 @@ best = model.optimal_dose(a_grid, ("north", "store_17"))             # dose, lo,
   <h3>References</h3>
   <ul class="refs">
     <li>Bach, P., Chernozhukov, V., Kurz, M. S. and Spindler, M. (2022). <a href="https://jmlr.org/papers/v23/21-0862.html" target="_blank" rel="noopener">DoubleML: an object-oriented implementation of double machine learning in Python</a>. <em>Journal of Machine Learning Research</em>, 23(53), 1–6.</li>
+    <li>Chernozhukov, V., Newey, W. and Singh, R. (2022). <a href="https://doi.org/10.3982/ECTA18515" target="_blank" rel="noopener">Automatic debiased machine learning of causal and structural effects</a>. <em>Econometrica</em>, 90(3), 967–1027.</li>
+    <li>Chernozhukov, V., Newey, W., Quintas-Martínez, V. and Syrgkanis, V. (2022). <a href="https://arxiv.org/abs/2110.03031" target="_blank" rel="noopener">RieszNet and ForestRiesz: automatic debiased machine learning with neural nets and random forests</a>. <em>ICML</em>, PMLR 162.</li>
     <li>Chernozhukov, V. et al. (2018). <a href="https://arxiv.org/abs/1608.00060" target="_blank" rel="noopener">Double/debiased machine learning for treatment and structural parameters</a>. <em>The Econometrics Journal</em>, 21(1), C1–C68.</li>
     <li>Colangelo, K. and Lee, Y.-Y. (2020). <a href="https://arxiv.org/abs/2004.03036" target="_blank" rel="noopener">Double debiased machine learning nonparametric inference with continuous treatments</a>. arXiv:2004.03036.</li>
     <li>Eilers, P. and Marx, B. (1996). Flexible smoothing with B-splines and penalties. <em>Statistical Science</em>, 11(2), 89–121.</li>
@@ -562,6 +605,7 @@ best = model.optimal_dose(a_grid, ("north", "store_17"))             # dose, lo,
     <li>Kim, Y.-J. and Gu, C. (2004). Smoothing spline Gaussian regression: more scalable computation via efficient approximation. <em>Journal of the Royal Statistical Society: Series B</em>, 66(2), 337–356.</li>
     <li>Klosin, S. (2021). <a href="https://arxiv.org/abs/2104.10334" target="_blank" rel="noopener">Automatic double machine learning for continuous treatment effects</a>. arXiv:2104.10334.</li>
     <li>Marra, G. and Wood, S. (2012). <a href="https://doi.org/10.1111/j.1467-9469.2011.00760.x" target="_blank" rel="noopener">Coverage properties of confidence intervals for generalized additive model components</a>. <em>Scandinavian Journal of Statistics</em>, 39(1), 53–74.</li>
+    <li>Valentin, S., Detommaso, G., Li, Y., Opper, M. and Brueckner, M. (2025). <a href="https://neurips.cc/virtual/2025/124095" target="_blank" rel="noopener">On double robustness in double machine learning</a>. NeurIPS 2025 Workshop CauScien.</li>
   </ul>
 </section>
 

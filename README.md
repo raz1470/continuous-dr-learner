@@ -38,6 +38,7 @@ new, _    = model.curve(a_grid, ("r0", "unseen"))   # unseen store -> its region
 
 Inputs:
 - `X` can be an array or a DataFrame (non-numeric columns are integer-coded). Group codes are appended automatically (`add_group_codes=True`) so the nuisance models see the groups.
+- Weights: for a continuous `A` the default is `RieszWeights` (automatic debiasing): the weight varpi(a)/pi(a|x) is learned directly by minimising the Riesz loss with boosted trees, with no density estimated. In tests with 50 confounders, density weights made DR worse than plug-in while learned weights beat it (see Sim 5). `gps=GPS()` gives Kennedy et al.'s density-based weights.
 - `A` with ≤ 30 distinct values (tiers, counts) is treated as discrete: `DiscreteGPS` (a classifier over the dose levels) is used automatically, because a continuous density is not a valid weight for a discrete dose.
 - A point mass in a continuous dose (e.g. many zeros) triggers a warning; model "any vs none" separately.
 - `fold_groups=` keeps ids (e.g. customers) together in cross-fitting; `cluster=` makes robust covariances cluster-robust.
@@ -106,12 +107,14 @@ src/drcurves/
   pooled.py     HierarchicalDoseResponse: P-splines with nested ridge deviations, GCV-tuned;
                 bands, contrasts, optimal dose, draws
   bootstrap.py  full-pipeline bootstrap
+  riesz.py      RieszWeights: automatic debiasing (weights learned directly, no density)
   simulate.py   the three data-generating processes (true curves known)
 experiments/
   sim1_nonlinear.py               shape: DR curve vs DoubleML θ, and θ under policy shifts
   sim2_double_robustness.py       right/wrong nuisance models: plug-in vs IPW vs DR; PLR scores
   sim3_hierarchical_shrinkage.py  8 regions x 25 stores: no / complete / partial pooling
   sim4_uncertainty.py             coverage of bands, contrasts and optimal-dose intervals
+  sim5_dimension.py               5 / 20 / 50 confounders: plug-in vs DR (density vs Riesz weights)
 tools/build_article.py            builds article/index.html from results/
 figures/  results/  article/
 ```
@@ -125,6 +128,7 @@ python experiments/sim2_double_robustness.py 30
 python experiments/sim3_hierarchical_shrinkage.py 5
 python experiments/sim4_uncertainty.py single 42   # resumable; add a time budget in seconds as 3rd arg
 python experiments/sim4_uncertainty.py stores 15
+python experiments/sim5_dimension.py 10            # resumable
 python tools/build_article.py      # -> article/index.html
 pytest
 ```
@@ -142,6 +146,9 @@ Runtime is about 45 minutes on two cores, mostly simulations 2 and 3.
 - Kennedy, Ma, McHugh & Small (2017). Non-parametric methods for doubly robust estimation of continuous treatment effects. *JRSS-B* 79(4).
 - Chernozhukov et al. (2018). Double/debiased machine learning. *Econometrics Journal* 21(1).
 - Colangelo & Lee (2020). Double debiased ML nonparametric inference with continuous treatments. arXiv:2004.03036.
+- Chernozhukov, Newey & Singh (2022). Automatic debiased machine learning of causal and structural effects. *Econometrica* 90(3).
+- Chernozhukov, Newey, Quintas-Martínez & Syrgkanis (2022). RieszNet and ForestRiesz. *ICML*.
+- Valentin, Detommaso, Li, Opper & Brueckner (2025). On double robustness in double machine learning. NeurIPS 2025 Workshop CauScien.
 - Marra & Wood (2012). Coverage properties of confidence intervals for GAM components. *Scand. J. Statistics* 39(1).
 - Eilers & Marx (1996). Flexible smoothing with B-splines and penalties. *Statistical Science* 11(2).
 

@@ -174,3 +174,24 @@ def test_many_groups_sparse_path():
     assert m.p_ > m.dense_max
     est, se = m.curve(np.linspace(-1, 1, 5), (3, 18))
     assert np.all(np.isfinite(est)) and np.all(se > 0)
+
+
+def test_riesz_weights_track_true_ratio_and_default():
+    from scipy.stats import norm
+    from drcurves import RieszWeights
+    rng = np.random.default_rng(8)
+    n = 4000
+    X = rng.normal(size=(n, 3))
+    m = 0.8 * X[:, 0] + 0.5 * np.sin(2 * X[:, 1])
+    A = m + rng.normal(size=n)
+    true = np.array([norm.pdf(a, m, 1).mean() for a in A[:500]]) / norm.pdf(A[:500], m[:500], 1)
+    w = RieszWeights().fit(X[500:], A[500:]).weight(X[:500], A[:500])
+    assert np.corrcoef(np.log(w + 1e-3), np.log(true))[0, 1] > 0.6
+    # default weight model for a continuous dose is RieszWeights
+    Y = 1.5 * A - 0.8 * A ** 2 + X[:, 0] + rng.normal(size=n)
+    mdl = fit_dose_response(X, A, Y, outcome_model=make_pipeline(PolynomialFeatures(2), LinearRegression()))
+    assert np.allclose(mdl.nuisances_.pi, 1.0)
+    g = np.linspace(-1.5, 1.5, 30)
+    est, _ = mdl.curve(g)
+    t = 1.5 * g - 0.8 * g ** 2
+    assert np.sqrt(np.mean(((est - est.mean()) - (t - t.mean())) ** 2)) < 0.25

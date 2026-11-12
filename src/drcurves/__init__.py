@@ -7,9 +7,11 @@ import pandas as pd
 from .nuisance import GPS, DiscreteGPS, Nuisances, cross_fit_nuisances, pseudo_outcomes
 from .pooled import HierarchicalDoseResponse
 from .bootstrap import bootstrap_curves
+from .riesz import RieszWeights
 
 __all__ = ["GPS", "DiscreteGPS", "Nuisances", "cross_fit_nuisances", "pseudo_outcomes",
-           "HierarchicalDoseResponse", "fit_dose_response", "bootstrap_curves", "prepare_X"]
+           "HierarchicalDoseResponse", "fit_dose_response", "bootstrap_curves", "prepare_X",
+           "RieszWeights"]
 
 
 def prepare_X(X, groups=None, add_group_codes=True):
@@ -72,8 +74,10 @@ def fit_dose_response(X, A, Y, outcome_model, gps=None, groups=None, pooling="pa
     groups   : None (one population curve); a DataFrame with one column (flat
                groups, each shrunk toward the global curve); or several columns
                top -> bottom (e.g. ["region", "store"]). Levels must be nested.
-    gps      : None picks DiscreteGPS when A has <= max_levels distinct values,
-               otherwise the continuous GPS.
+    gps      : the weight model. None picks DiscreteGPS when A has <= max_levels
+               distinct values, otherwise RieszWeights (automatic debiasing:
+               the weight is learned directly, no density). GPS() gives the
+               density-based weights of Kennedy et al. (2017).
     cluster  : cluster ids for the robust covariance types.
     fold_groups : ids kept together in cross-fitting (e.g. customer id).
     cov_type : "bayes" (default), "robust_bayes" or "sandwich".
@@ -88,8 +92,8 @@ def fit_dose_response(X, A, Y, outcome_model, gps=None, groups=None, pooling="pa
         groups = groups.reset_index(drop=True)
     discrete = _check_dose(A, max_levels)
     if gps is None:
-        gps = DiscreteGPS(random_state=random_state) if discrete else GPS(random_state=random_state)
-    elif discrete and isinstance(gps, GPS):
+        gps = DiscreteGPS(random_state=random_state) if discrete else RieszWeights(random_state=random_state)
+    elif discrete and type(gps) is GPS:
         warnings.warn(f"A has only {len(np.unique(A))} distinct values; a continuous GPS is not "
                       "a valid density for it. Use DiscreteGPS (the default when gps=None).",
                       stacklevel=2)

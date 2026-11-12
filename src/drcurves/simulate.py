@@ -43,6 +43,11 @@ def sim_double_robust(n=3000, effect="inverted_u", seed=0):
     f = (lambda a: 1.0 * a) if effect == "linear" else CURVES["inverted_u"]
     g = 2.0 * np.sin(1.5 * X[:, 0]) + 0.8 * X[:, 1] ** 2 + 0.5 * X[:, 3]
     Y = f(A) + g + 0.7 * rng.normal(size=n)
+    if return_oracle:   # true weight varpi(A)/pi(A|X), for benchmarking only
+        from scipy.stats import norm
+        pi = norm.pdf(A, m, s)
+        varpi = np.array([norm.pdf(a, m, s).mean() for a in A])
+        return X, A, Y, f, varpi / pi
     return X, A, Y, f
 
 
@@ -78,3 +83,39 @@ def sim_hierarchical(n_regions=8, stores_per_region=25, median_store_n=60, seed=
                                       "x1": X[:, 1], "x2": X[:, 2], "A": A, "Y": Y}))
     df = pd.concat(rows, ignore_index=True)
     return df, truth, f0
+
+
+# --------------------------------------------------------------------------- 5
+def sim_high_dim(n=3000, p=50, seed=0, weak_share=0.6, return_oracle=False):
+    """Sim 2's design plus many weak confounders.
+
+    Four strong nonlinear confounders as in sim_double_robust, plus p - 4 weak
+    ones (correlated, dense, small linear effects) that push both the dose and
+    the outcome the same way. The total size of the weak confounding is fixed
+    as p grows, so a larger p spreads the same confounding over more variables,
+    which is harder for a regularised model to learn.
+    """
+    rng = np.random.default_rng(seed)
+    rho = 0.3
+    Z = rng.normal(size=(n, p))
+    X = np.sqrt(1 - rho) * Z + np.sqrt(rho) * rng.normal(size=(n, 1))  # equicorrelated
+    X[:, :4] = 2 * (_sigmoid(1.7 * X[:, :4]) - 0.5) * 2                 # strong ones on ~(-2, 2)
+    k = p - 4
+    if k > 0:
+        beta = np.random.default_rng(1234).choice([-1.0, 1.0], k) * np.random.default_rng(99).uniform(0.5, 1.5, k)
+        weak = X[:, 4:] @ beta
+        weak = weak_share * (weak - weak.mean()) / weak.std()
+    else:
+        weak = np.zeros(n)
+    m = 0.5 * (0.9 * np.sin(1.5 * X[:, 0]) + 0.35 * X[:, 1] ** 2 - 0.4 + 0.3 * (X[:, 2] > 0)) + weak
+    s = 0.8 + 0.3 * _sigmoid(2 * X[:, 0])
+    A = m + s * rng.normal(size=n)
+    f = CURVES["inverted_u"]
+    g = 2.0 * np.sin(1.5 * X[:, 0]) + 0.8 * X[:, 1] ** 2 + 0.5 * X[:, 3] + 2.5 * weak
+    Y = f(A) + g + 0.7 * rng.normal(size=n)
+    if return_oracle:   # true weight varpi(A)/pi(A|X), for benchmarking only
+        from scipy.stats import norm
+        pi = norm.pdf(A, m, s)
+        varpi = np.array([norm.pdf(a, m, s).mean() for a in A])
+        return X, A, Y, f, varpi / pi
+    return X, A, Y, f

@@ -41,6 +41,32 @@ s3rmse = pd.read_csv(RES / "sim3_store_rmse.csv")
 s3plr = pd.read_csv(RES / "sim3_plr_per_store.csv")
 N_REPS2 = int(pd.read_csv(RES / "sim2_plr_reps.csv").rep.nunique())
 N_REPS3 = int(s3rmse.rep.nunique())
+s4a = pd.read_csv(RES / "sim4_single_summary.csv").set_index("cov_type")
+s4b = pd.read_csv(RES / "sim4_stores_summary.csv").set_index(["cov_type", "size_band"])
+N_REPS4A = int(pd.read_csv(RES / "sim4_single_reps.csv").rep.nunique())
+N_REPS4B = int(pd.read_csv(RES / "sim4_stores_reps.csv").rep.nunique())
+
+
+def covcls(v):
+    return "good" if v >= 0.92 else ("bad" if v < 0.8 else "")
+
+
+cov_rows = []
+for label, ct, src in [("One curve: default bands", "robust_bayes", "a"),
+                       ("One curve: plain sandwich", "sandwich", "a"),
+                       ("200 stores: default bands", "robust_bayes", "b"),
+                       ("200 stores: plain sandwich", "sandwich", "b")]:
+    r = s4a.loc[ct] if src == "a" else s4b.loc[(ct, "all")]
+    cells = "".join(f"<td class='num {covcls(r[c])}'>{pct(r[c])}</td>"
+                    for c in ["pointwise", "simultaneous", "contrast", "optimum"])
+    cov_rows.append(f"<tr><td>{label}</td>{cells}</tr>")
+table4 = ("<table class='dtable'><caption>Share of 95% intervals that contain the truth. One curve: "
+          f"{N_REPS4A} replications of the Sim 1 data. Stores: {N_REPS4B} replications of the Sim 3 data, "
+          "averaged over all 200 stores.</caption><thead><tr><th>Setting</th><th class='num'>Pointwise band</th>"
+          "<th class='num'>Simultaneous band</th><th class='num'>Dose contrast</th>"
+          "<th class='num'>Optimal dose</th></tr></thead><tbody>" + "".join(cov_rows) + "</tbody></table>")
+big4 = s4b.loc[("robust_bayes", "150+")]
+small4 = s4b.loc[("robust_bayes", "<25")]
 
 
 def c2(om, gm, est, col="abs_bias"):
@@ -425,6 +451,7 @@ model = fit_dose_response(
 )
 curve, se = model.curve(a_grid, ("north", "store_17"))
 region_curve, _ = model.curve(a_grid, ("north",))
+# flat groups with no hierarchy: groups=df[["store"]]; one population: groups=None
 new_store, _ = model.curve(a_grid, ("north", "store_new"))   # falls back to region</code></pre>
 
   <p>Three checks are worth running every time:</p>
@@ -435,7 +462,33 @@ new_store, _ = model.curve(a_grid, ("north", "store_new"))   # falls back to reg
     <li><strong>Shrinkage.</strong> Print the chosen penalties. Very large ones mean the level adds little beyond its parent; very small ones mean the groups really are different.</li>
   </ol>
 
-  <p>The pointwise intervals are sandwich intervals from the second stage. They ignore smoothing bias, so read them as a guide to where the curve is well determined, not as exact coverage.</p>
+  <h3>Uncertainty</h3>
+
+  <p>A curve is only useful for a decision if you know how far to trust it. The package gives four kinds of interval, all from the same fitted model:</p>
+
+<pre><code>est, lo, hi, _ = model.band(a_grid, ("north", "store_17"))           # whole-curve band
+lift, se = model.contrast(0.10, 0.20, ("north", "store_17"))         # 10% -> 20% discount
+gap, se = model.contrast(0.15, 0.15, ("north", "store_17"), ("north", "store_04"))  # same dose, two stores
+best = model.optimal_dose(a_grid, ("north", "store_17"))             # dose, lo, hi, at_edge</code></pre>
+
+  <ul class="pts">
+    <li><strong>Bands.</strong> A pointwise band covers each dose separately. A simultaneous band covers the whole curve at once, which is what you need before saying "the curve peaks between x and y". It is wider, by a critical value found from draws of the fitted curve.</li>
+    <li><strong>Contrasts.</strong> The change from one dose to another, or the gap between two groups at the same dose. These are linear in the spline coefficients, so their standard errors are exact given the coefficient covariance.</li>
+    <li><strong>Optimal dose.</strong> The argmax of each drawn curve gives an interval for where the peak is. <code>at_edge</code> reports how often the peak lands at the end of the observed doses, a warning that the true optimum may lie outside your data.</li>
+  </ul>
+
+  <p>The covariance matters more than the method. Penalised splines and shrinkage are biased on purpose, and a standard sandwich covariance treats the fitted curve as if it were unbiased. The default adds the prior (penalty) term of the equivalent Bayesian model, the approach behind the intervals in <code>mgcv</code> (<a href="https://doi.org/10.1111/j.1467-9469.2011.00760.x" target="_blank" rel="noopener">Marra and Wood 2012</a>), so the band widens where shrinkage pulls the curve.</p>
+
+  <p>To check the intervals, the Sim 1 and Sim 3 data were regenerated many times and each interval was scored against the truth:</p>
+
+  <div class="dtable-wrap">{table4}</div>
+
+  <ul class="pts">
+    <li><strong>One curve:</strong> the default bands are close to nominal pointwise, contrasts and optimal-dose intervals cover at or above 95%, and the simultaneous band falls a little short ({pct(s4a.loc['robust_bayes','simultaneous'])}).</li>
+    <li><strong>Many curves:</strong> the plain sandwich is badly overconfident ({pct(s4b.loc[('sandwich','all'),'pointwise'])} pointwise), because it ignores shrinkage. The default does much better but is still below 95%. Coverage falls as stores get bigger ({pct(small4['pointwise'])} pointwise under 25 observations, {pct(big4['pointwise'])} above 150): bands shrink with more data, but a small bias from the nuisance models does not.</li>
+  </ul>
+
+  <p>None of these intervals include the uncertainty from fitting the outcome model and the GPS. For a number that will drive a decision, run <code>bootstrap_curves</code> once. It refits the whole pipeline on resampled data (within each store, so every store's curve stays defined). It is slow, so use it as a check rather than routinely.</p>
 </section>
 
 <!-- FAQ -->
@@ -491,6 +544,7 @@ new_store, _ = model.curve(a_grid, ("north", "store_new"))   # falls back to reg
     <li>Kennedy, E., Ma, Z., McHugh, M. and Small, D. (2017). <a href="https://arxiv.org/abs/1507.00747" target="_blank" rel="noopener">Non-parametric methods for doubly robust estimation of continuous treatment effects</a>. <em>Journal of the Royal Statistical Society: Series B</em>, 79(4), 1229–1245.</li>
     <li>Kim, Y.-J. and Gu, C. (2004). Smoothing spline Gaussian regression: more scalable computation via efficient approximation. <em>Journal of the Royal Statistical Society: Series B</em>, 66(2), 337–356.</li>
     <li>Klosin, S. (2021). <a href="https://arxiv.org/abs/2104.10334" target="_blank" rel="noopener">Automatic double machine learning for continuous treatment effects</a>. arXiv:2104.10334.</li>
+    <li>Marra, G. and Wood, S. (2012). <a href="https://doi.org/10.1111/j.1467-9469.2011.00760.x" target="_blank" rel="noopener">Coverage properties of confidence intervals for generalized additive model components</a>. <em>Scandinavian Journal of Statistics</em>, 39(1), 53–74.</li>
   </ul>
 </section>
 

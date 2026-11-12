@@ -1,24 +1,31 @@
 """Doubly robust, nonlinear, hierarchically pooled dose-response curves."""
 from .nuisance import GPS, Nuisances, cross_fit_nuisances, pseudo_outcomes
 from .pooled import HierarchicalDoseResponse
+from .bootstrap import bootstrap_curves
 
 __all__ = ["GPS", "Nuisances", "cross_fit_nuisances", "pseudo_outcomes",
-           "HierarchicalDoseResponse", "fit_dose_response"]
+           "HierarchicalDoseResponse", "fit_dose_response", "bootstrap_curves"]
 
 
 def fit_dose_response(X, A, Y, outcome_model, gps=None, groups=None, pooling="partial",
-                      n_folds=5, n_basis=10, random_state=0):
+                      n_folds=5, n_basis=10, cluster=None, cov_type="robust_bayes",
+                      random_state=0):
     """One-call pipeline: cross-fitted nuisances -> DR pseudo-outcomes -> pooled splines.
 
     groups : pandas DataFrame with one column per hierarchy level, top -> bottom
-             (e.g. ["region", "store"]), or None for a single population curve.
+             (e.g. ["region", "store"]); a single column for flat groups with no
+             hierarchy (each shrunk toward the global curve); or None for one
+             population curve.
+    cluster : optional cluster ids for the covariance (see HierarchicalDoseResponse.fit).
+    cov_type : "robust_bayes" (default), "bayes" or "sandwich".
     """
     gps = GPS(random_state=random_state) if gps is None else gps
     leaf = None if groups is None else groups.astype(str).agg("/".join, axis=1).to_numpy()
     nuis = cross_fit_nuisances(X, A, Y, outcome_model, gps, groups=leaf,
                                n_folds=n_folds, random_state=random_state)
     xi = pseudo_outcomes(nuis, Y, kind="dr")
-    model = HierarchicalDoseResponse(n_basis=n_basis, pooling=pooling).fit(A, xi, groups)
+    model = HierarchicalDoseResponse(n_basis=n_basis, pooling=pooling, cov_type=cov_type).fit(
+        A, xi, groups, cluster=cluster)
     model.nuisances_ = nuis
     model.pseudo_outcomes_ = xi
     return model

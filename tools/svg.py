@@ -125,3 +125,33 @@ def scatter(xs, ys, w=680, h=280, xlabel="", ylabel="", logx=False, ylim=None, r
     out.append(f'<text x="14" y="{(T+B)/2}" text-anchor="middle" font-size="11" fill="{MUTED}" transform="rotate(-90 14 {(T+B)/2})">{ylabel}</text>')
     out.append("</svg>")
     return "".join(out)
+
+
+def funnel_panel(n, err, title, sub="", color="#2a78d6", ylim=(-2, 2), w=340, h=210,
+                 xlabel="Observations in store (log scale)"):
+    """Error of a per-group estimate against group size (log x), one dot per group."""
+    n, err = np.asarray(n, float), np.asarray(err, float)
+    ok = np.isfinite(err)
+    n, err = n[ok], err[ok]
+    L, R, T, B = 36, w - 10, 10, h - 36
+    xl, xh = np.log10(max(n.min() * 0.85, 1)), np.log10(n.max() * 1.15)
+    yl, yh = ylim
+    sx = lambda v: L + (np.log10(v) - xl) / (xh - xl) * (R - L)  # noqa: E731
+    sy = lambda v: B - (np.clip(v, yl, yh) - yl) / (yh - yl) * (B - T)  # noqa: E731
+    out = [f'<svg class="chart" viewBox="0 0 {w} {h}">']
+    for t in _nice_ticks(yl, yh, 4):
+        col = MUTED if abs(t) < 1e-9 else GRID
+        out.append(f'<line x1="{L}" x2="{R}" y1="{sy(t):.1f}" y2="{sy(t):.1f}" stroke="{col}"'
+                   f'{" stroke-dasharray=\"3 3\"" if abs(t) < 1e-9 else ""}/>'
+                   f'<text x="{L-6}" y="{sy(t)+4:.1f}" text-anchor="end" font-size="11" fill="{MUTED}">{_fmt(t)}</text>')
+    for t in [10, 20, 50, 100, 200, 500]:
+        if 10 ** xl <= t <= 10 ** xh:
+            out.append(f'<text x="{sx(t):.1f}" y="{B+16}" text-anchor="middle" font-size="11" fill="{MUTED}">{t}</text>')
+    for x, y in zip(n, err):
+        clipped = y < yl or y > yh
+        out.append(f'<circle cx="{sx(x):.1f}" cy="{sy(y):.1f}" r="2.6" fill="{color}" '
+                   f'opacity="{0.35 if clipped else 0.7}"/>')
+    out.append(f'<text x="{(L+R)/2}" y="{h-4}" text-anchor="middle" font-size="11" fill="{MUTED}">{xlabel}</text>')
+    out.append("</svg>")
+    head = f'<div class="panel-title">{title}</div>' + (f'<div class="panel-sub">{sub}</div>' if sub else "")
+    return f"<div>{head}{''.join(out)}</div>"

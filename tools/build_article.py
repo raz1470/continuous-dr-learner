@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from svg import grouped_bars, legend, line_panel, scatter  # noqa: E402
+from svg import funnel_panel, legend, line_panel  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 RES = ROOT / "results"
@@ -163,7 +163,7 @@ tablep = ("<table class='dtable'><caption>DoubleMLPLR on a linear effect (true �
 # ===================================================================== sim 3
 grid3 = np.array(s3["grid"])
 stores = sorted(s3["stores"], key=lambda d: d["n"])
-pick_idx = [0, len(stores) // 4, len(stores) // 2, len(stores) - 1]
+pick_idx = [0, len(stores) - 1]
 sim3_panels = []
 allv = np.concatenate([np.r_[d["truth"], d["partial"]] for d in stores])
 ylim3 = (np.percentile(allv, 0.5), np.percentile(allv, 99.5))
@@ -177,27 +177,35 @@ for i in pick_idx:
         {"y": d["truth"], "color": INK, "dash": "5 4", "width": 2},
     ], f"{d['store']} · {d['region']}", f"n = {d['n']}", ylim=ylim3))
 
-bands = s3size.size_band.tolist()
-bars3 = grouped_bars(
-    [f"{b}\n{int(n)} stores" for b, n in zip(bands, s3size.n_stores)],
-    [("No pooling", ORANGE, s3size["none"].tolist()),
-     ("Complete pooling", GREY, s3size["complete"].tolist()),
-     ("Partial pooling", BLUE, s3size["partial"].tolist())],
-    ylabel="RMSE of store curve")
 overall3 = s3rmse.groupby("pooling").rmse.mean()
 small = s3rmse[s3rmse.n < 25].groupby("pooling").rmse.mean()
 big = s3rmse[s3rmse.n >= 150].groupby("pooling").rmse.mean()
 
-# true average slope of each store over the grid (what a per-store PLR should land near)
-slope_true = {d["store"]: (d["truth"][-1] - d["truth"][0]) / (grid3[-1] - grid3[0]) for d in stores}
-s3plr["true_slope"] = s3plr.store.map(slope_true)
-ok = s3plr.theta.notna()
-plr_small = s3plr[ok & (s3plr.n < 25)]
-plr_big = s3plr[ok & (s3plr.n >= 150)]
-sl = np.array(list(slope_true.values()))
-scat = scatter(s3plr.n[ok], s3plr.theta[ok], xlabel="Observations in store (log scale)",
-               ylabel="Per-store DoubleML θ", logx=True, ylim=(-3, 5),
-               refs=(np.percentile(sl, 5), np.percentile(sl, 95)))
+# Funnel: error in each store's dose effect, theta_s(a_hi) - theta_s(a_lo), by store size.
+L3 = len(grid3)
+i_lo, i_hi = round(0.25 * (L3 - 1)), round(0.75 * (L3 - 1))
+a_lo, a_hi = grid3[i_lo], grid3[i_hi]
+st_n = np.array([d["n"] for d in stores])
+true_eff = np.array([d["truth"][i_hi] - d["truth"][i_lo] for d in stores])
+eff_err = {p: np.array([d[p][i_hi] - d[p][i_lo] for d in stores]) - true_eff
+           for p in ["partial", "none", "complete"]}
+plr_theta = s3plr.set_index("store").theta
+eff_err["doubleml"] = np.array([plr_theta.get(d["store"], np.nan) for d in stores]) * (a_hi - a_lo) - true_eff
+lim3 = float(np.ceil(np.nanpercentile(np.abs(eff_err["none"]), 99) * 2) / 2)
+
+
+def rmse_by(err, mask):
+    e = err[mask & np.isfinite(err)]
+    return float(np.sqrt(np.mean(e ** 2)))
+
+
+small_m, big_m = st_n < 25, st_n >= 150
+funnel = []
+for key, title, col in [("partial", "Partial pooling", BLUE), ("none", "No pooling", ORANGE),
+                        ("complete", "Complete pooling", GREY), ("doubleml", "DoubleML per store", YELLOW)]:
+    sub = f"RMSE {rmse_by(eff_err[key], small_m):.2f} in stores under 25 obs, {rmse_by(eff_err[key], big_m):.2f} at 150+"
+    funnel.append(funnel_panel(st_n, eff_err[key], title, sub, col, ylim=(-lim3, lim3)))
+n_fail = int(np.isnan(eff_err["doubleml"]).sum())
 
 explorer_data = json.dumps({"grid": s3["grid"], "stores": [
     {k: d[k] for k in ["store", "region", "n", "truth", "none", "complete", "partial", "partial_se"]} for d in stores]})
@@ -425,7 +433,7 @@ select {{ font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px so
 
   <div class="fig">
     <div class="fig-hdr">
-      <div class="fig-title">Four stores, from the smallest to the largest</div>
+      <div class="fig-title">The smallest and the largest store</div>
       <div class="fig-sub">Same DR pseudo-outcomes; only the pooling changes. Curves centred.</div>
     </div>
     <div class="fig-body">{LEG3}<div class="panels">{''.join(sim3_panels)}</div></div>
@@ -433,6 +441,21 @@ select {{ font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px so
   </div>
 
   <p>Complete pooling gives every store the same curve, so it misses stores whose regions bend differently. In small stores, no pooling leans on a handful of points, while partial pooling leans on the region's curve and widens its band. In the largest store, no pooling and partial pooling agree, because the data overrules the shrinkage.</p>
+
+  <p>Two stores are anecdotes. The next chart shows all 200. For each store it takes one number you might act on, the change in outcome from moving the dose from {f2(a_lo)} to {f2(a_hi)}, and plots the estimation error against the store's size. The fourth panel is the usual workaround: one DoubleMLPLR per store, with its slope multiplied by the same change in dose. In the smallest stores that means boosted nuisance models fitted on a few dozen rows with two folds, so treat it as what the workaround gives you, not DoubleML at its best.</p>
+
+  <div class="fig">
+    <div class="fig-hdr">
+      <div class="fig-title">Error in each store's dose effect, all 200 stores</div>
+      <div class="fig-sub">Estimated minus true effect of moving the dose from {f2(a_lo)} to {f2(a_hi)}. One dot per store.</div>
+    </div>
+    <div class="fig-body"><div class="panels">{''.join(funnel)}</div></div>
+    <p class="fig-cap">Dots outside the plotted range are drawn at the edge, faded.{" DoubleML failed to fit in " + str(n_fail) + " stores." if n_fail else ""}</p>
+  </div>
+
+  <p>DoubleML fans out into a wide funnel and no pooling into a narrower one: the smaller the store, the larger the error. Complete pooling has the opposite problem. Its errors don't shrink as stores get bigger, because it gives every store the same curve. Partial pooling stays tight in small stores and matches no pooling in big ones. Across all {N_REPS3} replications of the full curve, its error is {overall3['partial']:.2f}, against {overall3['none']:.2f} with no pooling and {overall3['complete']:.2f} with complete pooling, and in stores with fewer than 25 observations it is {small['partial']:.2f} against {small['none']:.2f}.</p>
+
+  <p>The explorer below shows any single store's curves.</p>
 
   <div class="fig">
     <div class="fig-hdr">
@@ -445,31 +468,6 @@ select {{ font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px so
       <div id="explorer"></div>
     </div>
   </div>
-
-  <div class="fig">
-    <div class="fig-hdr">
-      <div class="fig-title">Error by store size</div>
-      <div class="fig-sub">Average RMSE of each store's curve against its true curve, {N_REPS3} replications of 200 stores</div>
-    </div>
-    <div class="fig-body">{bars3}</div>
-  </div>
-
-  <p>Partial pooling is the best or tied for best in every size band, and best overall ({overall3['partial']:.2f}, against {overall3['none']:.2f} with no pooling and {overall3['complete']:.2f} with complete pooling). The gain is largest where it matters most: in stores with fewer than 25 observations, error falls from {small['none']:.2f} to {small['partial']:.2f}. In stores with 150 or more it ties with no pooling ({big['partial']:.2f} against {big['none']:.2f}), and complete pooling is the worst option there at {big['complete']:.2f}.</p>
-
-  <h3>Looping DoubleML over stores</h3>
-
-  <p>For comparison, one DoubleMLPLR was fitted per store, the usual workaround. In the smallest stores that means boosted nuisance models fitted on a few dozen rows or fewer with two folds, so treat this as what the workaround gives you, not as DoubleML at its best. Each gives a slope, so the comparison point is each store's true average slope across the dose range (grey band: middle 90% of true store slopes).</p>
-
-  <div class="fig">
-    <div class="fig-hdr">
-      <div class="fig-title">One DoubleML θ per store</div>
-      <div class="fig-sub">Each dot is a store. Grey: range of the true average slopes.</div>
-    </div>
-    <div class="fig-body">{scat}</div>
-    <p class="fig-cap">Values outside the plotted range are drawn at the edge, faded.</p>
-  </div>
-
-  <p>Among stores with fewer than 25 observations, the per-store θ has a spread of {plr_small.theta.std():.1f} against {plr_small.true_slope.std():.1f} for the true slopes, so most of what you see is noise. Among stores with 150 or more it is {plr_big.theta.std():.1f}. And each estimate is still a single slope with the policy dependence from section 2.</p>
 </section>
 
 <!-- 5 -->

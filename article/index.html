@@ -363,13 +363,23 @@ select { font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px sol
 <section id="method">
   <h2>5. Intervals</h2>
 
-  <p>A curve only helps a decision if you know how far to trust it. The DR curve comes with a 95% band from step 3, the regression that turns the pseudo-outcomes into a smooth curve. In section 2, with five confounders, that band was close to right. With 50 confounders and balancing weights, it isn't.</p>
+  <p>A curve only helps a decision if you know how far to trust it. The DR curve comes with a 95% band from step 3. With five confounders (section 2) that band was close to right. With 50 confounders and balancing weights, it contained the true curve at only 72% of doses.</p>
 
-  <p>Across 15 simulated datasets, the 95% band contained the true curve at only 72% of doses. The band isn't too narrow: its width matches how much the curve actually moves between datasets. The problem is that the curve is slightly off. Balancing removes most of the confounding, not all of it, and a band centred in slightly the wrong place misses even when its width is right. More data doesn't help, because the band shrinks but the bias doesn't.</p>
+  <p>The band's width is fine: it matches how much the curve moves between datasets. The problem is that the curve is slightly off, because balancing removes most of the confounding, not all of it. A band centred in the wrong place misses, and more data won't fix that: the band shrinks, but the bias doesn't.</p>
 
-  <p>The fix is to measure the miss on your own data, the same way you'd check any pipeline: inject a known effect and see if you get it back. Keep your real confounders and doses, replace the outcome with a synthetic one whose dose-response curve you chose, and rerun the whole pipeline 20–30 times. Because the synthetic data keep your confounding, the pipeline is off by about as much as on the real data, so you can count how often the band misses and find the multiplier (in place of 1.96) that gives 95%. This is called a plasmode simulation. It's optimistic, because the synthetic outcome comes from your own fitted model, so treat the result as a minimum width.</p>
+  <p>The fix is to measure the miss on your own data: inject a known effect and see if you get it back.</p>
+  <ol class="pts">
+    <li>Keep your real confounders and doses.</li>
+    <li>Replace the outcome with a synthetic one whose curve you chose.</li>
+    <li>Rerun the whole pipeline 20–30 times and count how often the band misses.</li>
+    <li>Use the multiplier that would have given 95% in place of 1.96.</li>
+  </ol>
 
-  <p>We ran it once, on one of the simulated datasets: 30 runs gave a multiplier of 3.7. The chart applies that multiplier to all 15 datasets.</p>
+  <p>This is a plasmode simulation (<a href="https://doi.org/10.1016/j.csda.2013.10.018" target="_blank" rel="noopener">Franklin et al. 2014</a>). It works because the synthetic data keep your confounding, so the pipeline is off by about as much as on the real data.</p>
+
+  <p>Treat the multiplier as a rough guide. The synthetic outcome comes from your own fitted model, so it's easier than reality, which pushes the multiplier down. Keeping the real doses can make weighting methods look more biased than they are (<a href="https://arxiv.org/abs/2504.11740" target="_blank" rel="noopener">Shaw et al. 2025</a>), which pushes it up.</p>
+
+  <p>We ran it on one simulated dataset: 30 runs gave a multiplier of 3.7. The chart applies it to all 15.</p>
 
   <div class="fig">
     <div class="fig-hdr">
@@ -379,9 +389,9 @@ select { font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px sol
     <p class="fig-cap">Share of doses at which the band contains the true curve, averaged over 15 simulated datasets with 50 confounders and DR with balancing weights. The dashed line is the 95% a band should reach.</p>
   </div>
 
-  <p>The default band falls well short of 95%. Widening it by the calibrated multiplier brings it back to about 95%.</p>
+  <p>The default band falls well short of 95%; the calibrated one gets back to it.</p>
 
-  <p>One caveat: this calibrates the band dose by dose. For a claim about the whole shape, such as "the curve peaks between x and y", the same check underestimated the multiplier needed in our simulations, so treat whole-curve statements with extra caution.</p>
+  <p>This calibrates the band dose by dose. For claims about the whole shape ("the curve peaks between x and y"), the same check underestimated the multiplier needed, so be more cautious there.</p>
 </section>
 
 <!-- 6 -->
@@ -485,12 +495,14 @@ select { font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px sol
     <li>Chernozhukov, V. et al. (2018). <a href="https://arxiv.org/abs/1608.00060" target="_blank" rel="noopener">Double/debiased machine learning for treatment and structural parameters</a>. <em>The Econometrics Journal</em>, 21(1), C1–C68.</li>
     <li>Colangelo, K. and Lee, Y.-Y. (2020). <a href="https://arxiv.org/abs/2004.03036" target="_blank" rel="noopener">Double debiased machine learning nonparametric inference with continuous treatments</a>. arXiv:2004.03036.</li>
     <li>Eilers, P. and Marx, B. (1996). Flexible smoothing with B-splines and penalties. <em>Statistical Science</em>, 11(2), 89–121.</li>
+    <li>Franklin, J. M., Schneeweiss, S., Polinski, J. M. and Rassen, J. A. (2014). <a href="https://doi.org/10.1016/j.csda.2013.10.018" target="_blank" rel="noopener">Plasmode simulation for the evaluation of pharmacoepidemiologic methods in complex healthcare databases</a>. <em>Computational Statistics &amp; Data Analysis</em>, 72, 219–226.</li>
     <li>Gelman, A. and Hill, J. (2007). <em>Data Analysis Using Regression and Multilevel/Hierarchical Models</em>. Cambridge University Press.</li>
     <li>Hirano, K. and Imbens, G. (2004). The propensity score with continuous treatments. In <em>Applied Bayesian Modeling and Causal Inference from Incomplete-Data Perspectives</em>, Wiley.</li>
     <li>Kennedy, E., Ma, Z., McHugh, M. and Small, D. (2017). <a href="https://arxiv.org/abs/1507.00747" target="_blank" rel="noopener">Non-parametric methods for doubly robust estimation of continuous treatment effects</a>. <em>Journal of the Royal Statistical Society: Series B</em>, 79(4), 1229–1245.</li>
     <li>Kim, Y.-J. and Gu, C. (2004). Smoothing spline Gaussian regression: more scalable computation via efficient approximation. <em>Journal of the Royal Statistical Society: Series B</em>, 66(2), 337–356.</li>
     <li>Klosin, S. (2021). <a href="https://arxiv.org/abs/2104.10334" target="_blank" rel="noopener">Automatic double machine learning for continuous treatment effects</a>. arXiv:2104.10334.</li>
     <li>Marra, G. and Wood, S. (2012). <a href="https://doi.org/10.1111/j.1467-9469.2011.00760.x" target="_blank" rel="noopener">Coverage properties of confidence intervals for generalized additive model components</a>. <em>Scandinavian Journal of Statistics</em>, 39(1), 53–74.</li>
+    <li>Shaw, P. A., Gruber, S., Williamson, B. D., Desai, R., Shortreed, S. M., Krakauer, C., Nelson, J. C. and van der Laan, M. J. (2025). <a href="https://arxiv.org/abs/2504.11740" target="_blank" rel="noopener">A cautionary note for plasmode simulation studies in the setting of causal inference</a>. arXiv:2504.11740.</li>
     <li>Tübbicke, S. (2022). <a href="https://doi.org/10.1515/jem-2021-0002" target="_blank" rel="noopener">Entropy balancing for continuous treatments</a>. <em>Journal of Econometric Methods</em>, 11(1), 71–89.</li>
     <li>Valentin, S., Detommaso, G., Li, Y., Opper, M. and Brueckner, M. (2025). <a href="https://neurips.cc/virtual/2025/124095" target="_blank" rel="noopener">On double robustness in double machine learning</a>. NeurIPS 2025 Workshop CauScien.</li>
   </ul>

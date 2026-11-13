@@ -203,7 +203,7 @@ html = f"""<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Continuous Treatments Need Curves, Not Coefficients by Ryan O'Sullivan</title>
+<title>Estimating Continuous Treatment Effects: From a Single Slope to a Doubly Robust Curve by Ryan O'Sullivan</title>
 <style>
 {CSS}
 select {{ font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px solid var(--border); border-radius: 6px; background: #fff; }}
@@ -218,17 +218,17 @@ select {{ font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px so
 <body>
 
 <header class="hdr">
-  <h1>Continuous Treatments Need Curves, Not Coefficients</h1>
-  <p class="tagline">Where double machine learning's partially linear model falls short for continuous treatments, a doubly robust and partially pooled alternative, and how far to trust its intervals.</p>
+  <h1>Estimating Continuous Treatment Effects: From a Single Slope to a Doubly Robust Curve</h1>
+  <p class="tagline">A simulation study of where DoubleML's partially linear model falls short for continuous treatments, and a doubly robust alternative that estimates the whole curve.</p>
   <p class="byline">Ryan O'Sullivan · Code on <a href="{REPO}" style="color:#cbd5e1">GitHub</a></p>
 </header>
 
 <nav class="snav">
   <a href="#plr" class="active">1 · One slope vs a curve</a>
-  <a href="#shape">2 · Shape</a>
+  <a href="#shape">2 · Nonlinear effects</a>
   <a href="#robust">3 · Robustness</a>
   <a href="#many">4 · Many curves</a>
-  <a href="#method">5 · In practice</a>
+  <a href="#method">5 · Using it</a>
   <a href="#limits">Limits</a>
   <a href="#faq">Questions</a>
   <a href="#together">Conclusion</a>
@@ -254,7 +254,7 @@ select {{ font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px so
 
   <div class="eqn">Y = θD + g(X) + ε</div>
 
-  <p>where D is the treatment, X the confounders and g(X) is learned with any machine learning model. Models like g are called nuisance models: we need them, but don't care about them for their own sake. Cross-fitting (each row's predictions come from models trained on other rows) and an orthogonal score (an estimating equation that is insensitive to small errors in the nuisance models) stop the regularisation in g from biasing θ, which is what makes its confidence interval valid. The catch is the θD term: it assumes the effect is linear, so every extra unit of treatment has the same effect wherever you start.</p>
+  <p>where D is the treatment, X the confounders and g(X) the effect of the confounders on the outcome. DoubleML estimates θ with two machine learning models: an <strong>outcome model</strong>, which predicts Y from X, and a <strong>treatment model</strong>, which predicts D from X. It then regresses what's left of Y on what's left of D (this is called partialling out). Models like these are called nuisance models: we need them, but don't care about them for their own sake. Cross-fitting (each row's predictions come from models trained on other rows) and an orthogonal score (an estimating equation that is insensitive to small errors in the nuisance models) stop the regularisation in these models from biasing θ, which is what makes its confidence interval valid. The catch is the θD term: it assumes the effect is linear, so every extra unit of treatment has the same effect wherever you start.</p>
 
   <p>If the true effect is a curve, you still get a single slope back: roughly the curve's average slope across the doses in your data.</p>
 
@@ -276,7 +276,7 @@ select {{ font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px so
 <!-- 2 -->
 <section id="shape">
   <p class="s-label">Simulation 1</p>
-  <h2>2. Shape: one slope cannot describe a curve</h2>
+  <h2>2. Nonlinear effects</h2>
 
   <p>Nonlinear dose-response curves are common. Two shapes come up again and again:</p>
 
@@ -384,11 +384,10 @@ select {{ font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px so
 
   <div class="fig">
     <div class="fig-hdr">
-      <div class="fig-title">The smallest and the largest store</div>
-      <div class="fig-sub">Same DR pseudo-outcomes; only the pooling changes. Curves centred.</div>
+      <div class="fig-title">Estimated curves for the smallest and the largest store</div>
     </div>
     <div class="fig-body">{LEG3}<div class="panels">{''.join(sim3_panels)}</div></div>
-    <p class="fig-cap">Store baselines are not the target, so curves are compared up to a constant.</p>
+    <p class="fig-cap">The same DR pseudo-outcomes in every case; only the pooling changes. Store baselines are not the target, so curves are centred.</p>
   </div>
 
   <p>Complete pooling gives every store the same curve, so it misses stores whose regions bend differently. In small stores, no pooling leans on a handful of points, while partial pooling leans on the region's curve and widens its band. In the largest store, no pooling and partial pooling agree, because the data overrules the shrinkage.</p>
@@ -398,10 +397,9 @@ select {{ font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px so
   <div class="fig">
     <div class="fig-hdr">
       <div class="fig-title">Error in each store's dose effect, all 200 stores</div>
-      <div class="fig-sub">Estimated minus true effect of moving the dose from {f2(a_lo)} to {f2(a_hi)}. One dot per store.</div>
     </div>
     <div class="fig-body"><div class="panels">{''.join(funnel)}</div></div>
-    <p class="fig-cap">Dots outside the plotted range are drawn at the edge, faded.{" DoubleML failed to fit in " + str(n_fail) + " stores." if n_fail else ""}</p>
+    <p class="fig-cap">One dot per store: its estimated minus true effect of moving the dose from {f2(a_lo)} to {f2(a_hi)}, against the number of observations in the store. Dots outside the plotted range are drawn at the edge, faded.{" DoubleML failed to fit in " + str(n_fail) + " stores." if n_fail else ""}</p>
   </div>
 
   <p>DoubleML fans out into a wide funnel and no pooling into a narrower one: the smaller the store, the larger the error. Complete pooling has the opposite problem. Its errors don't shrink as stores get bigger, because it gives every store the same curve. Partial pooling stays tight in small stores and matches no pooling in big ones. Across all {N_REPS3} replications of the full curve, its error is {overall3['partial']:.2f}, against {overall3['none']:.2f} with no pooling and {overall3['complete']:.2f} with complete pooling, and in stores with fewer than 25 observations it is {small['partial']:.2f} against {small['none']:.2f}.</p>
@@ -410,14 +408,14 @@ select {{ font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px so
 
   <div class="fig">
     <div class="fig-hdr">
-      <div class="fig-title">Explore every store</div>
-      <div class="fig-sub">Choose a store to compare the three second stages against its true curve</div>
+      <div class="fig-title">Store-level curves: no, complete and partial pooling</div>
     </div>
     <div class="fig-body">
       <div style="margin-bottom:.6rem"><select id="storeSel" aria-label="Store"></select></div>
       {LEG3}
       <div id="explorer"></div>
     </div>
+    <p class="fig-cap">Choose a store to compare its no-pooling, complete-pooling and partial-pooling curves against its true curve.</p>
   </div>
 </section>
 
@@ -471,11 +469,10 @@ best = model.optimal_dose(a_grid, ("north", "store_17"))             # dose, lo,
 
   <div class="fig">
     <div class="fig-hdr">
-      <div class="fig-title">What the intervals look like</div>
-      <div class="fig-sub">One dataset from Sim 1 (inverted U, 4,000 units), default settings</div>
+      <div class="fig-title">Pointwise and simultaneous bands, and the optimal-dose interval</div>
     </div>
     <div class="fig-body">{LEG4}<div class="panels">{band_panel}{peak_panel}</div></div>
-    <p class="fig-cap">Right: the peak of each of 4,000 curves drawn from the fitted model; the shaded range is the 95% interval.</p>
+    <p class="fig-cap">One dataset from Simulation 1 (inverted U, 4,000 units), default settings. Right: the peak of each of 4,000 curves drawn from the fitted model; the shaded range is the 95% interval.</p>
   </div>
 
   <p>The whole-curve band is about {eb['z_s'] / eb['z_p']:.1f} times as wide as the dose-by-dose one, and it is the one to use before saying anything about the shape. This example shows why: at the lowest doses the true curve drifts outside the dose-by-dose band, but it stays inside the whole-curve band throughout. The peak is pinned down to a range rather than a point ({f2(op['lo'])} to {f2(op['hi'])}, with the true peak at {f2(eb['true_peak'])}), which is usually the more honest answer to "what dose should we use?". Moving the dose from {f2(ct['a_lo'])} to {f2(ct['a_hi'])} changes the outcome by {f2(ct['est'])} ± {1.96 * ct['se']:.2f} (truth {f2(ct['truth'])}).</p>
@@ -539,7 +536,7 @@ best = model.optimal_dose(a_grid, ("north", "store_17"))             # dose, lo,
   <p>The partially linear model is a good tool used for the wrong question. With a continuous treatment, the question is about a curve, and the three simulations show where a single coefficient falls short:</p>
 
   <ul class="pts">
-    <li><strong>Shape.</strong> θ is an average slope weighted by where the doses fall, so it moves with the treatment policy. Estimate θ(a) instead.</li>
+    <li><strong>Shape.</strong> A single slope can't describe a curve. On an inverted U it can come out near zero, as if the dose didn't matter. Estimate the whole curve instead.</li>
     <li><strong>Robustness.</strong> The default partialling-out score breaks when the treatment model is wrong; the IV-type score and ADML fix that, but only for θ. The DR pseudo-outcome survives either model being wrong for the whole curve. With few confounders a good outcome model alone can match it; with many, DR pays off only if the weights are estimated well, which rules out density weights.</li>
     <li><strong>Many curves.</strong> Looping over groups gives noise for the small ones. Partial pooling gives every group a curve, shrinks the small ones toward their parent, and lets the big ones speak for themselves.</li>
   </ul>

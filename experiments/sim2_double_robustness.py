@@ -41,6 +41,7 @@ CACHE = ROOT / "results" / "cache"
 CACHE.mkdir(parents=True, exist_ok=True)
 REPS = int(sys.argv[1]) if len(sys.argv) > 1 else 30
 P, N = 50, 3000
+CURVE = "inverted_u_centred"   # peak mid-range
 
 
 # ---------------------------------------------------------------- model specs
@@ -50,7 +51,7 @@ def f_conf(X):         # the true confounding features (strong nonlinear + weak 
 
 def f_out_right(Z):    # Z = [X, A]
     a = Z[:, -1]
-    return np.column_stack([f_conf(Z[:, :-1]), a, a ** 2])
+    return np.column_stack([f_conf(Z[:, :-1]), a, a ** 2])  # true curve is quadratic in a
 
 
 def f_out_wrong(Z):    # right in the dose, linear in raw covariates
@@ -72,7 +73,7 @@ DOSE = {"right": GPS(mean_model=lin(f_conf), scale_model=lin(f_scale), residual=
         "wrong": GPS(mean_model=LinearRegression(), heteroscedastic=False, residual="gaussian")}
 SCEN = [("right", "right"), ("wrong", "right"), ("right", "wrong"), ("wrong", "wrong")]
 
-_, A_big, _, f = sim_high_dim(n=200_000, p=P, seed=0)
+_, A_big, _, f = sim_high_dim(n=200_000, p=P, seed=0, effect=CURVE)
 GRID = np.linspace(*np.quantile(A_big, [0.05, 0.95]), 50)
 TRUTH = f(GRID)
 
@@ -90,7 +91,7 @@ for rep in range(REPS):
     path = CACHE / f"sim2hd_{rep:03d}.json"
     if path.exists():
         continue
-    X, A, Y, _ = sim_high_dim(n=N, p=P, seed=100 + rep)
+    X, A, Y, _ = sim_high_dim(n=N, p=P, seed=100 + rep, effect=CURVE)
     out = {}
     # Part A
     nu = {k: cross_fit_nuisances(X, A, Y, OUTCOME[k], None, random_state=rep) for k in OUTCOME}

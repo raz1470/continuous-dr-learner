@@ -187,7 +187,7 @@ explorer_data = json.dumps({"grid": s3["grid"], "stores": [
     {k: d[k] for k in ["store", "region", "n", "truth", "none", "complete", "partial", "partial_se"]} for d in stores]})
 
 # =================================================================== article
-LEG1 = legend([("True curve", INK, "5 4"), ("DR curve, this repo (95% band)", BLUE, ""), ("DoubleML PLR", ORANGE, "")])
+LEG1 = legend([("True curve", INK, "5 4"), ("DR curve (95% band)", BLUE, ""), ("DoubleML PLR", ORANGE, "")])
 LEG2 = legend([("Truth (zero error)", INK, "5 4"), ("S-learner", YELLOW, ""), ("Weighting only", AQUA, ""),
                ("Doubly robust", BLUE, "")])
 LEG5 = legend([("True curve", INK, "5 4"), ("S-learner", YELLOW, ""), ("DR, density weights", ORANGE, ""),
@@ -297,19 +297,19 @@ select {{ font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px so
 
   <div class="fig">
     <div class="fig-hdr">
-      <div class="fig-title">One dataset, two estimates of the dose-response</div>
+      <div class="fig-title">Estimated dose-response curves: DR vs DoubleML</div>
     </div>
     <div class="fig-body">{LEG1}<div class="panels">{''.join(sim1_panels)}</div></div>
     <p class="fig-cap">Each panel is one simulated dataset. Dashed black: the true dose-response curve. Blue: the DR curve, with a 95% band. Orange: DoubleML's estimate, a straight line with slope θ. Curves cover the middle 90% of observed doses and are centred, since only the shape is being compared.</p>
   </div>
 
-  <p>The DR curve follows both shapes. DoubleML's line can only tilt: it misses the peak of the inverted U, and on the saturating curve it gives every unit the same return, understating it at low doses and overstating it at high ones.</p>
+  <p>The DR curve follows both shapes. DoubleML's line can only tilt. On the inverted U its slope is close to zero: read on its own, it says the dose doesn't matter, when moving away from the middle in either direction costs a lot. On the saturating curve it gives every unit the same return, understating it at low doses and overstating it at high ones.</p>
 </section>
 
 <!-- 3 -->
 <section id="robust">
   <p class="s-label">Simulation 2</p>
-  <h2>3. Robustness: one of two models will be wrong</h2>
+  <h2>3. Robustness to a wrong nuisance model</h2>
 
   <p>Every observational estimate leans on models that are approximations. With a continuous dose, the model of who gets which dose is especially easy to get wrong. Doses are often set by unwritten business rules (pricing tiers, budgets split by last year's revenue, a cap on notifications), and some segments see a narrow range of doses while others see a wide one. The outcome model can be wrong too. So the useful question isn't whether your models are right, but what happens when one of them is wrong.</p>
 
@@ -334,7 +334,7 @@ select {{ font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px so
 
   <div class="fig">
     <div class="fig-hdr">
-      <div class="fig-title">Which estimator survives a wrong model?</div>
+      <div class="fig-title">Estimation error with right and wrong nuisance models</div>
     </div>
     <div class="fig-body">{LEG2}<div class="panels">{''.join(sim2_panels)}</div></div>
     <p class="fig-cap">Each panel combines a right or wrong outcome model with a right or wrong dose model and shows each estimator's error: its average estimated curve over {N_REPS2} simulated datasets, minus the true curve. The dashed line at zero is the truth, so the closer to it the better. The blue band shows where 90% of the individual DR curves fall. Curves are centred.</p>
@@ -343,24 +343,24 @@ select {{ font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px so
   <ul class="pts">
     <li><strong>Outcome model wrong:</strong> the S-learner misses the curve; DR gets much closer, because the weighted residuals correct most of the error.</li>
     <li><strong>Dose model wrong:</strong> weighting only misses the curve; DR stays close, because the outcome model was already right.</li>
-    <li><strong>Both wrong:</strong> DR misses too. Double robustness gives you two chances, not a guarantee.</li>
+    <li><strong>Both wrong:</strong> DR misses too. It needs at least one of the two models to be right.</li>
   </ul>
 
-  <p>Weighting only is the weakest throughout. Even with the right dose model, a few units get extreme weights, and capping them (which the package does by default) leaves some bias. DR inherits little of this, because it only weights the residuals.</p>
+  <p>Weighting only is the weakest throughout. Even with the right dose model, a few units get extreme weights, and capping them, a standard safeguard, leaves some bias. DR inherits little of this, because it only weights the residuals.</p>
 
   <h3>In practice</h3>
 
-  <p>Nobody knows which model is right, so in practice both are flexible machine learning models. With 50 confounders, that is where the S-learner's weakness shows: a boosted outcome model spreads its effort over many weak features, shrinks the dose's effect and lets correlated features absorb part of it, so the curve flattens. The DR correction exists to remove exactly that bias, but only if the weights are good, and weights built from a boosted density are not. Small errors in the density's mean become very large errors in the weights. Entropy balancing weights avoid the density altogether: they make the dose uncorrelated with each confounder in the weighted sample (<a href="https://doi.org/10.1515/jem-2021-0002" target="_blank" rel="noopener">Tübbicke 2022</a>).</p>
+  <p>Nobody knows which model is right, so in practice both are flexible machine learning models. With 50 confounders the S-learner's weakness shows: a boosted outcome model shrinks the dose's effect and lets correlated features absorb part of it, so the curve flattens. DR can correct that, but only with good weights, and weights built from a boosted density aren't: small errors in the density turn into very large errors in the weights. Entropy balancing weights avoid the density altogether. They make the dose uncorrelated with each confounder in the weighted sample (<a href="https://doi.org/10.1515/jem-2021-0002" target="_blank" rel="noopener">Tübbicke 2022</a>).</p>
 
   <div class="fig">
     <div class="fig-hdr">
-      <div class="fig-title">Boosted models, 50 confounders</div>
+      <div class="fig-title">Estimated curves with boosted nuisance models, 50 confounders</div>
     </div>
     <div class="fig-body">{LEG5}<div class="panels" style="grid-template-columns:1fr">{practice_panel}</div></div>
     <p class="fig-cap">Average estimated curve over {N_REPS2} simulated datasets, all with the same boosted outcome model. The blue band shows where 90% of the individual curves with balancing weights fall. Dashed black: the true curve. Lines that leave the chart are cut off at its edge.</p>
   </div>
 
-  <p>The S-learner flattens the curve, DR with density weights is far off, and DR with balancing weights recovers the shape. The package includes balancing weights for exactly this case. Their intervals need widening, though, which section 5 comes back to.</p>
+  <p>The S-learner flattens the curve, DR with density weights is far off, and DR with balancing weights recovers the shape. Its intervals need widening, though, which section 5 comes back to.</p>
 </section>
 
 <!-- 4 -->
@@ -478,7 +478,7 @@ best = model.optimal_dose(a_grid, ("north", "store_17"))             # dose, lo,
     <p class="fig-cap">Right: the peak of each of 4,000 curves drawn from the fitted model; the shaded range is the 95% interval.</p>
   </div>
 
-  <p>The whole-curve band is about {eb['z_s'] / eb['z_p']:.1f} times as wide as the dose-by-dose one, and it is the one to use before saying anything about the shape. This example shows why: at the highest doses the true curve drifts just outside the dose-by-dose band, but it stays inside the whole-curve band throughout. The peak is pinned down to a range rather than a point ({f2(op['lo'])} to {f2(op['hi'])}, with the true peak at {f2(eb['true_peak'])}), which is usually the more honest answer to "what dose should we use?". Moving the dose from {f2(ct['a_lo'])} to {f2(ct['a_hi'])} changes the outcome by {f2(ct['est'])} ± {1.96 * ct['se']:.2f} (truth {f2(ct['truth'])}).</p>
+  <p>The whole-curve band is about {eb['z_s'] / eb['z_p']:.1f} times as wide as the dose-by-dose one, and it is the one to use before saying anything about the shape. This example shows why: at the lowest doses the true curve drifts outside the dose-by-dose band, but it stays inside the whole-curve band throughout. The peak is pinned down to a range rather than a point ({f2(op['lo'])} to {f2(op['hi'])}, with the true peak at {f2(eb['true_peak'])}), which is usually the more honest answer to "what dose should we use?". Moving the dose from {f2(ct['a_lo'])} to {f2(ct['a_hi'])} changes the outcome by {f2(ct['est'])} ± {1.96 * ct['se']:.2f} (truth {f2(ct['truth'])}).</p>
 
   <p>The covariance matters more than the method. Penalised splines and shrinkage are biased on purpose, and a standard sandwich covariance treats the fitted curve as if it were unbiased. The default is instead the posterior covariance of the equivalent Bayesian model, σ²(X′X + P)⁻¹ with P the penalty, which is what <code>mgcv</code> uses for its intervals. Its intervals widen where the penalty pulls the curve. <a href="https://doi.org/10.1111/j.1467-9469.2011.00760.x" target="_blank" rel="noopener">Marra and Wood (2012)</a> show this gives close to nominal coverage averaged across the curve, rather than at every point.</p>
 
@@ -487,7 +487,7 @@ best = model.optimal_dose(a_grid, ("north", "store_17"))             # dose, lo,
   <div class="dtable-wrap">{table4}</div>
 
   <ul class="pts">
-    <li><strong>One curve:</strong> the default pointwise band is close to nominal ({pct(s4a.loc['bayes','pointwise'])}), and the simultaneous band falls a little short ({pct(s4a.loc['bayes','simultaneous'])}). Contrasts cover {pct(s4a.loc['bayes','contrast'])}, so their intervals are, if anything, too wide. Optimal-dose intervals cover {pct(s4a.loc['bayes','optimum'])}.</li>
+    <li><strong>One curve:</strong> the default pointwise band is a little below nominal ({pct(s4a.loc['bayes','pointwise'])}), and the simultaneous band falls further short ({pct(s4a.loc['bayes','simultaneous'])}). Contrasts cover {pct(s4a.loc['bayes','contrast'])}. Optimal-dose intervals cover {pct(s4a.loc['bayes','optimum'])}.</li>
     <li><strong>Many curves:</strong> the plain sandwich is badly overconfident ({pct(s4b.loc[('sandwich','all'),'pointwise'])} pointwise), because it ignores shrinkage. The default does much better ({pct(s4b.loc[('bayes','all'),'pointwise'])} pointwise, {pct(s4b.loc[('bayes','all'),'optimum'])} for the optimal dose) but is still below 95% for bands. Coverage is {pct(small4['pointwise'])} pointwise in stores under 25 observations and {pct(big4['pointwise'])} above 150. A likely reason for any shortfall in big stores is a small bias from the nuisance models, which stays while the band narrows; the simulation does not isolate it.</li>
   </ul>
 

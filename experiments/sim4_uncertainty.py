@@ -56,7 +56,7 @@ def score(model, grid, truth, path, a_lo, a_hi, f_true):
 
 
 def rep_single(rep):
-    X, A, Y, f = sim_nonlinear(n=4000, curve="inverted_u", seed=2000 + rep)
+    X, A, Y, f = sim_nonlinear(n=4000, curve="inverted_u_centred", seed=2000 + rep)
     hgb = HGB(max_iter=300, learning_rate=0.05, random_state=0)
     nuis = cross_fit_nuisances(X, A, Y, hgb, GPS(), random_state=rep)
     xi = pseudo_outcomes(nuis, Y)

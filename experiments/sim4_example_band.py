@@ -16,14 +16,14 @@ from drcurves.simulate import sim_nonlinear  # noqa: E402
 warnings.filterwarnings("ignore")
 ROOT = Path(__file__).resolve().parents[1]
 
-X, A, Y, f = sim_nonlinear(n=4000, curve="inverted_u", seed=1)
+X, A, Y, f = sim_nonlinear(n=4000, curve="inverted_u_centred", seed=1)
 model = fit_dose_response(X, A, Y, outcome_model=HGB(max_iter=300, learning_rate=0.05, random_state=0))
 grid = np.linspace(*np.quantile(A, [0.05, 0.95]), 80)
 est, lo_p, hi_p, z_p = model.band(grid, simultaneous=False, centre=True)
 _, lo_s, hi_s, z_s = model.band(grid, simultaneous=True, centre=True)
 truth = f(grid) - f(grid).mean()
 opt = model.optimal_dose(grid, n_draws=4000)
-a_lo, a_hi = np.quantile(A, [0.25, 0.75])
+a_lo, a_hi = np.quantile(A, [0.10, 0.50])   # low dose -> middle dose
 c, c_se = model.contrast(a_lo, a_hi)
 out = dict(grid=grid.tolist(), est=est.tolist(), lo_p=lo_p.tolist(), hi_p=hi_p.tolist(),
            lo_s=lo_s.tolist(), hi_s=hi_s.tolist(), truth=truth.tolist(), z_p=z_p, z_s=z_s,

@@ -14,6 +14,8 @@ def _sigmoid(z):
 CURVES = {
     # rises then falls: e.g. discount depth vs margin, dose vs recovery
     "inverted_u": lambda a: 1.5 * a - 0.8 * a ** 2,
+    # peak in the middle of the observed doses, so both sides of the hump show
+    "inverted_u_centred": lambda a: 0.5 - 1.0 * a ** 2,
     # strong early effect that saturates: e.g. ad spend vs conversions
     "saturating": lambda a: 2.5 * (1 - np.exp(-1.5 * (a + 1.5))) - 2.0,
 }

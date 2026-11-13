@@ -22,7 +22,8 @@ hgb = lambda: HGB(max_iter=300, learning_rate=0.05, random_state=0)  # noqa: E73
 fig, axes = plt.subplots(1, 2, figsize=(11, 4.2))
 rows, curves_out = [], {}
 for ax, curve in zip(axes, ["inverted_u", "saturating"]):
-    X, A, Y, f = sim_nonlinear(n=4000, curve=curve, seed=1)
+    gen = "inverted_u_centred" if curve == "inverted_u" else curve
+    X, A, Y, f = sim_nonlinear(n=4000, curve=gen, seed=1)
 
     np.random.seed(0)   # DoubleML draws its fold split from numpy's global RNG
     plr = DoubleMLPLR(DoubleMLData.from_arrays(X, Y, A), hgb(), hgb(), n_folds=5)
@@ -64,7 +65,7 @@ fig.savefig(ROOT / "figures" / "sim1_nonlinear.png")
 # same causal curve, different treatment policy: does theta stay put?
 policy = []
 for shift in [-0.5, 0.0, 0.5]:
-    X, A, Y, f = sim_nonlinear(n=4000, curve="inverted_u", seed=1, shift=shift)
+    X, A, Y, f = sim_nonlinear(n=4000, curve="inverted_u_centred", seed=1, shift=shift)
     np.random.seed(0)
     plr = DoubleMLPLR(DoubleMLData.from_arrays(X, Y, A), hgb(), hgb(), n_folds=5).fit()
     policy.append(dict(shift=shift, mean_a=float(A.mean()), theta=float(plr.coef[0]),

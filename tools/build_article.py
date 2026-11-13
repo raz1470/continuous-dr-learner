@@ -444,9 +444,12 @@ select {{ font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px so
 
   <p>The decision is rarely one curve for the whole business. Pricing teams set discounts by category, marketing teams set budgets by country and channel, CRM teams set cadence by segment. The groups are nested (stores in regions, products in categories, campaigns in channels), and their sizes follow a long tail: a few big ones with plenty of data and many small ones with very little.</p>
 
-  <p>Two simple options both fail on that long tail. One curve for everyone (complete pooling) ignores real differences between groups. A separate curve per group (no pooling) treats a store with 12 observations as if it knew as much as one with 500. Looping DoubleML over stores has the same problem, and it also refits the nuisance models on each store's handful of rows.</p>
-
-  <p>Partial pooling sits between them. Each store's curve is the global curve, plus a regional deviation, plus a store deviation:</p>
+  <p>There are three ways to handle the groups:</p>
+  <ul class="pts">
+    <li><strong>Complete pooling:</strong> one curve for everyone. Stable, but it ignores real differences between groups.</li>
+    <li><strong>No pooling:</strong> a separate curve per group. A store with 12 observations is treated as if it knew as much as one with 500. Looping DoubleML over stores does the same, and it also refits the nuisance models on each store's handful of rows.</li>
+    <li><strong>Partial pooling:</strong> in between. Each store's curve is the global curve, plus a regional deviation, plus a store deviation:</li>
+  </ul>
 
   <div class="eqn">θ<sub>store</sub>(a) = B(a)′ ( β<sub>global</sub> + b<sub>region</sub> + b<sub>store</sub> )</div>
 

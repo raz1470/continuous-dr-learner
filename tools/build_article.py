@@ -118,14 +118,20 @@ practice_panel = line_panel(g2, [
 s6 = pd.read_csv(RES / "sim6_intervals_summary.csv")
 s6bal = s6[(s6.p == 50) & (s6.weights == "balancing")].iloc[0]
 cb = json.loads((RES / "sim5_calibrated_band.json").read_text())
-cg, cest, cse, ctru = (np.array(cb[k]) for k in ("grid", "est", "se", "truth"))
+sys.path.insert(0, str(ROOT / "src"))
+from drcurves.simulate import sim_high_dim  # noqa: E402
+_, _Ab6, _, _f6 = sim_high_dim(n=200_000, p=50, seed=0)
+_g6 = np.linspace(*np.quantile(_Ab6, [0.05, 0.95]), 40)
+t6 = _f6(_g6) - _f6(_g6).mean()
 CRIT = cb["critical"]
-cerr = cest - ctru
-cal_panel = line_panel(cg, [
-    {"y": cerr, "lo": cerr - CRIT * cse, "hi": cerr + CRIT * cse, "color": BLUE},
-    {"y": cerr, "lo": cerr - 1.96 * cse, "hi": cerr + 1.96 * cse, "color": BLUE, "width": 2.6},
-    {"y": np.zeros_like(cg), "color": INK, "dash": "5 4", "width": 2},
-], "", "", w=680, h=260)
+cov_cal = []
+for fp in sorted((RES / "cache").glob("sim6_p50_*.json")):
+    d6 = json.loads(fp.read_text())["balancing"]
+    cov_cal.append([np.mean(np.abs(np.array(d6["est"]) - t6) <= c * np.array(d6["se"])) for c in (1.96, CRIT)])
+cov_cal = np.mean(cov_cal, axis=0)
+cal_panel = grouped_bars(["Default band\n1.96 standard errors", f"Calibrated band\n{CRIT:.1f} standard errors"],
+                         [("Coverage", BLUE, list(cov_cal))], h=240, ylabel="Doses covered",
+                         ref=(0.95, "95% target"), fmt=lambda v: f"{v:.0%}", vmax=1.08)
 
 cov_po = p2("partialling out", "right", "wrong", "coverage")
 plr_cov_text = "never contained" if cov_po == 0 else f"contained only {pct(cov_po)} of the time"
@@ -367,6 +373,8 @@ select {{ font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px so
     <li><strong>Both wrong:</strong> DR misses too. It needs at least one model right.</li>
   </ul>
 
+  <p>DR's remaining error sits at the ends of the dose range, where the wrong outcome model is most wrong and the fewest units are available to correct it.</p>
+
 </section>
 
 <!-- 4 -->
@@ -402,7 +410,7 @@ select {{ font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px so
   <ul class="pts">
     <li><strong>S-learner:</strong> roughly the right shape, but too flat.</li>
     <li><strong>DR with density weights:</strong> far off, and unstable from run to run.</li>
-    <li><strong>DR with balancing weights:</strong> recovers the shape. Its intervals are a different story (next section).</li>
+    <li><strong>DR with balancing weights:</strong> recovers the shape, but its 95% intervals are too narrow and miss the true curve more often than they should.</li>
   </ul>
 </section>
 
@@ -410,32 +418,23 @@ select {{ font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px so
 <section id="method">
   <h2>5. Intervals</h2>
 
-  <p>A curve only helps a decision if you know how far to trust it. The DR curve comes with a 95% band from the spline fit. In section 2, with five confounders, that band was close to right. With 50 confounders and balancing weights, it isn't.</p>
+  <p>A curve only helps a decision if you know how far to trust it. The DR curve comes with a 95% band from step 3, the regression that turns the pseudo-outcomes into a smooth curve. In section 2, with five confounders, that band was close to right. With 50 confounders and balancing weights, it isn't.</p>
 
   <p>Across {int(s6bal['reps'])} simulated datasets, the 95% band contained the true curve at only {pct(s6bal['pointwise'])} of doses. The band isn't too narrow: its width matches how much the curve actually moves between datasets. The problem is that the curve is slightly off. Balancing removes most of the confounding, not all of it, and a band centred in slightly the wrong place misses even when its width is right. More data doesn't help, because the band shrinks but the bias doesn't.</p>
 
-  <p>The fix is to measure the miss on your own data and widen the band to match. This is a plasmode simulation:</p>
-  <ol class="pts">
-    <li>Keep your real confounders and doses.</li>
-    <li>Make up an outcome with a known dose-response curve: your fitted outcome model for the confounder part, plus the known curve, plus resampled residuals.</li>
-    <li>Rerun the whole pipeline many times and see how often the band contains the known curve.</li>
-    <li>Find the multiplier that would have given 95%, and use it on the real fit in place of 1.96.</li>
-  </ol>
+  <p>The fix is to measure the miss on your own data, the same way you'd check any pipeline: inject a known effect and see if you get it back. Keep your real confounders and doses, replace the outcome with a synthetic one whose dose-response curve you chose, and rerun the whole pipeline 20–30 times. Because the synthetic data keep your confounding, the pipeline is off by about as much as on the real data, so you can count how often the band misses and find the multiplier (in place of 1.96) that gives 95%. This is called a plasmode simulation. It's optimistic, because the synthetic outcome comes from your own fitted model, so treat the result as a minimum width.</p>
 
-  <p>Because the simulated data keep your confounding structure, they inherit the same bias. On the dataset below, {cb['n_reps']} plasmode runs gave a multiplier of {CRIT:.1f}.</p>
+  <p>We ran it once, on one of the simulated datasets: {cb['n_reps']} runs gave a multiplier of {CRIT:.1f}. The chart applies that multiplier to all {int(s6bal['reps'])} datasets.</p>
 
   <div class="fig">
     <div class="fig-hdr">
-      <div class="fig-title">Default and calibrated 95% bands, 50 confounders</div>
+      <div class="fig-title">How often the 95% band contains the true curve, 50 confounders</div>
     </div>
-    <div class="fig-body">{LEG6}<div class="panels" style="grid-template-columns:1fr">{cal_panel}</div></div>
-    <p class="fig-cap">One simulated dataset with 50 confounders, DR curve with balancing weights. Darker band: the default 95% band (1.96 standard errors). Lighter band: the band calibrated by the plasmode simulation ({CRIT:.1f} standard errors). Everything is shown as error, the estimated minus the true curve, so a band contains the truth wherever it covers the dashed line at zero. Curves are centred.</p>
+    <div class="fig-body">{cal_panel}</div>
+    <p class="fig-cap">Share of doses at which the band contains the true curve, averaged over {int(s6bal['reps'])} simulated datasets with 50 confounders and DR with balancing weights. The dashed line is the 95% a band should reach.</p>
   </div>
 
-  <ul class="pts">
-    <li><strong>Default band:</strong> misses the true curve at both ends of the dose range.</li>
-    <li><strong>Calibrated band:</strong> about twice as wide, and contains it throughout.</li>
-  </ul>
+  <p>The default band falls well short of 95%. Widening it by the calibrated multiplier brings it back to about 95%.</p>
 
   <p>One caveat: this calibrates the band dose by dose. For a claim about the whole shape, such as "the curve peaks between x and y", the same check underestimated the multiplier needed in our simulations, so treat whole-curve statements with extra caution.</p>
 </section>
@@ -465,19 +464,6 @@ select {{ font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px so
 
   <div class="fig">
     <div class="fig-hdr">
-      <div class="fig-title">Each store's dose effect, with and without pooling</div>
-    </div>
-    <div class="fig-body">{LEG7}<div class="panels" style="grid-template-columns:1fr">{shrink_chart}</div></div>
-    <p class="fig-cap">One line per store, joining its no-pooling estimate (orange) to its partial-pooling estimate (blue) of the change in outcome from moving the dose from {f2(a_lo)} to {f2(a_hi)}, against the number of observations in the store. Points outside the plotted range are drawn at the edge, faded.</p>
-  </div>
-
-  <ul class="pts">
-    <li><strong>Small stores:</strong> the no-pooling estimates scatter widely. Partial pooling pulls them in toward their region.</li>
-    <li><strong>Big stores:</strong> the two dots sit almost on top of each other, because the data overrules the shrinkage.</li>
-  </ul>
-
-  <div class="fig">
-    <div class="fig-hdr">
       <div class="fig-title">Error in each store's dose effect, by store size</div>
     </div>
     <div class="fig-body">{LEG8}{size_bars}</div>
@@ -487,7 +473,7 @@ select {{ font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px so
   <ul class="pts">
     <li><strong>No pooling and DoubleML per store:</strong> the error grows as stores get smaller, worst for DoubleML.</li>
     <li><strong>Complete pooling:</strong> the error stays high even in big stores, because every store gets the same curve.</li>
-    <li><strong>Partial pooling:</strong> the lowest error in small stores, and it matches no pooling in big ones.</li>
+    <li><strong>Partial pooling:</strong> the lowest error in small stores, because it pulls them toward their region. In big stores it matches no pooling, because the data overrules the shrinkage.</li>
   </ul>
 
   <p>The 95% bands for each store's curve are a little short, covering the truth about {pct(s4b.loc[('bayes','all'),'pointwise'])} of the time.</p>
@@ -500,7 +486,13 @@ select {{ font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px so
   <h2>Frequently asked questions</h2>
 
   <details class="faq"><summary>When shouldn't I use this?</summary>
-    <p>Everything here assumes the confounders you measured explain how doses were assigned. Double robustness protects against a wrong model, not a missing variable. It also needs overlap: if some kinds of unit only ever get low doses, nothing in the data says what high doses would do for them, so report the curve only over the doses you actually see. If the dose is set at the group level (every customer in a store gets the store's discount), the store is the unit of analysis, so aggregate first. A spike at zero, such as no spend next to a range of positive spend, is really two questions, "any versus none" and "how much", so analyse them separately. Finally, the pooling assumes nested groups, such as stores within regions; crossed groupings like store × channel need a different model.</p>
+    <ul class="pts">
+      <li><strong>Unmeasured confounding.</strong> Double robustness protects against a wrong model, not a missing variable.</li>
+      <li><strong>Poor overlap.</strong> If some units only ever get low doses, the data can't say what high doses would do for them. Report the curve only over doses you actually see.</li>
+      <li><strong>Dose set at the group level.</strong> If every customer in a store gets the store's discount, the store is the unit of analysis. Aggregate first.</li>
+      <li><strong>A spike at zero.</strong> "Any versus none" and "how much" are different questions; analyse them separately.</li>
+      <li><strong>Crossed groups.</strong> The pooling assumes nesting (stores within regions). Store × channel needs a different model.</li>
+    </ul>
   </details>
 
   <details class="faq"><summary>Why not bin the treatment and use a discrete estimator?</summary>

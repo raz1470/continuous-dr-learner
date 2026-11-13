@@ -73,10 +73,11 @@ def legend(items):
     return f'<div class="legend">{"".join(spans)}</div>'
 
 
-def grouped_bars(categories, groups, w=680, h=260, ylabel=""):
-    """groups: list of (label, color, values)."""
+def grouped_bars(categories, groups, w=680, h=260, ylabel="", ref=None, fmt=None, vmax=None):
+    """groups: list of (label, color, values). ref: (value, label) dashed reference line."""
     L, R, T, B = 48, w - 10, 12, h - 46
-    vmax = max(max(v) for _, _, v in groups) * 1.12
+    fmt = fmt or (lambda v: f"{v:.2f}")
+    vmax = vmax or max(max(v) for _, _, v in groups) * 1.12
     sy = lambda v: B - v / vmax * (B - T)  # noqa: E731
     out = [f'<svg class="chart" viewBox="0 0 {w} {h}">']
     for t in _nice_ticks(0, vmax):
@@ -92,10 +93,13 @@ def grouped_bars(categories, groups, w=680, h=260, ylabel=""):
             y0 = sy(vals[i])
             out.append(f'<rect x="{x0:.1f}" y="{y0:.1f}" width="{bw:.1f}" height="{B-y0:.1f}" rx="3" fill="{col}">'
                        f'<title>{lab}: {vals[i]:.2f}</title></rect>'
-                       f'<text x="{x0+bw/2:.1f}" y="{y0-4:.1f}" text-anchor="middle" font-size="10" fill="{MUTED}">{vals[i]:.2f}</text>')
+                       f'<text x="{x0+bw/2:.1f}" y="{y0-4:.1f}" text-anchor="middle" font-size="10" fill="{MUTED}">{fmt(vals[i])}</text>')
         for k, part in enumerate(cat.split("\n")):
             out.append(f'<text x="{cx:.1f}" y="{B+16+13*k}" text-anchor="middle" font-size="11" fill="{INK if k == 0 else MUTED}">{part}</text>')
     out.append(f'<text x="14" y="{(T+B)/2}" text-anchor="middle" font-size="11" fill="{MUTED}" transform="rotate(-90 14 {(T+B)/2})">{ylabel}</text>')
+    if ref is not None:
+        out.append(f'<line x1="{L}" x2="{R}" y1="{sy(ref[0]):.1f}" y2="{sy(ref[0]):.1f}" stroke="{INK}" stroke-dasharray="5 4"/>'
+                   f'<text x="{R-2}" y="{sy(ref[0])-5:.1f}" text-anchor="end" font-size="11" fill="{INK}">{ref[1]}</text>')
     out.append(f'<line x1="{L}" x2="{R}" y1="{B}" y2="{B}" stroke="{MUTED}"/></svg>')
     return "".join(out)
 

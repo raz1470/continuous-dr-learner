@@ -293,16 +293,14 @@ select { font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px sol
 
   <p>Every observational estimate leans on models that are approximations. With a continuous dose, the model of who gets which dose is especially easy to get wrong. Doses are often set by unwritten business rules (pricing tiers, budgets split by last year's revenue, a cap on notifications), and some segments see a narrow range of doses while others see a wide one. The outcome model can be wrong too. So the useful question isn't whether your models are right, but what happens when one of them is wrong.</p>
 
+  <p>DoubleML's partially linear model has two scores. The default, partialling out, only protects against a wrong outcome model. If the treatment model is wrong, θ is biased however good the outcome model is (<a href="https://neurips.cc/virtual/2025/124095" target="_blank" rel="noopener">Valentin et al. 2025</a>). The IV-type score is doubly robust, but only for the single slope θ. What we want is a doubly robust <em>curve</em>, which is what the pseudo-outcome from section 1 provides.</p>
+
   <p>The simulation:</p>
   <ul class="pts">
-    <li>3,000 units and 50 confounders: four with strong nonlinear effects on both the dose and the outcome, and 46 weak ones with small effects on both.</li>
-    <li>"Right" nuisance models are correctly specified. A "wrong" model gets the confounding wrong: it treats every confounder as linear.</li>
-    <li>For DoubleML the true effect is linear, so θ is well defined. For the curve it is the inverted U.</li>
+    <li>3,000 units and 50 confounders: four with strong nonlinear effects on both the dose and the outcome, and 46 weak ones.</li>
+    <li>"Right" nuisance models are correctly specified. A "wrong" model treats every confounder as linear.</li>
+    <li>The true effect is the inverted U.</li>
   </ul>
-
-  <p>DoubleML's partially linear model offers two scores. The default, partialling out (Robinson's estimator), only protects against errors in the outcome model: if the treatment model is wrong, θ is biased however good the outcome model is (<a href="https://neurips.cc/virtual/2025/124095" target="_blank" rel="noopener">Valentin et al. 2025</a>). In our simulation with a wrong treatment model, the default score's 95% intervals never contained the true θ. The IV-type score is doubly robust, but only for θ, the single slope from section 2. What we want is a doubly robust <em>curve</em>, which is what the pseudo-outcome from section 1 provides.</p>
-
-  <h3>The curve</h3>
 
   <p>Each dataset gets a correct and a wrong version of the outcome model and of the dose model. The S-learner uses the outcome model alone, so it shows what the wrong outcome model costs you.</p>
 
@@ -356,7 +354,7 @@ select { font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px sol
 
   <ul class="pts">
     <li><strong>S-learner:</strong> roughly the right shape, but too flat.</li>
-    <li><strong>DR with density weights:</strong> far off, and unstable from run to run.</li>
+    <li><strong>DR with density weights:</strong> far off. A few units got doses the boosted model thought were nearly impossible, so their weights are huge and they drag the curve with them.</li>
     <li><strong>DR with balancing weights:</strong> recovers the shape, but its 95% intervals are too narrow and miss the true curve more often than they should.</li>
   </ul>
 </section>

@@ -112,13 +112,13 @@ Validation: on one 50-covariate dataset, `coverage_check` estimated a pointwise 
 
 Monte Carlo coverage (`experiments/sim4_uncertainty.py`; share of 95% intervals containing the truth):
 
-Shape (centred curve) coverage; one curve: 42 replications of Sim 1, stores: 15 replications of Sim 3 (200 stores each).
+Shape (centred curve) coverage; one curve: 42 replications of Sim 1 (centred inverted U), stores: 15 replications of Sim 3 (200 stores each).
 
 | Setting | Pointwise band | Simultaneous band | Dose contrast | Optimal dose |
 |---|---|---|---|---|
-| One curve, default (`bayes`) | 95% | 88% | 100% | 98% |
-| One curve, `robust_bayes` | 95% | 88% | 100% | 100% |
-| One curve, `sandwich` | 94% | 86% | 100% | 100% |
+| One curve, default (`bayes`) | 91% | 81% | 95% | 100% |
+| One curve, `robust_bayes` | 93% | 83% | 90% | 100% |
+| One curve, `sandwich` | 90% | 76% | 90% | 100% |
 | 200 stores, default (`bayes`) | 88% | 78% | 92% | 95% |
 | 200 stores, `robust_bayes` | 87% | 74% | 91% | 96% |
 | 200 stores, `sandwich` | 64% | 34% | 72% | 78% |
@@ -126,7 +126,7 @@ Shape (centred curve) coverage; one curve: 42 replications of Sim 1, stores: 15 
 | Stores with 150+ obs, default | 84% | 69% | 90% | 97% |
 
 Read these as follows:
-- For one curve the defaults are close to nominal; the simultaneous band is a bit short and contrast intervals are conservative.
+- For one curve the default pointwise band is a little below nominal and the simultaneous band falls further short; contrasts are close to nominal.
 - With many shrunk curves, the default bands are much better than a sandwich but still below 95%. Coverage falls as stores get bigger; a plausible reason (not isolated by the simulation) is a small bias from the nuisance models that stays while the band narrows.
 - For decisions, prefer `level=0.99`, or check the key number with `bootstrap_curves`.
 

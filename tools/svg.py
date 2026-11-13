@@ -18,6 +18,8 @@ def _nice_ticks(lo, hi, n=4):
 
 
 def _fmt(v):
+    if abs(v) < 1e-9:
+        return "0"
     return f"{v:g}" if abs(v) >= 1 or v == 0 else f"{v:.2g}"
 
 
@@ -187,3 +189,35 @@ def hist_panel(values, title, sub="", bins=30, color="#2a78d6", marks=(), shade=
                f'<text x="{(L + R) / 2}" y="{h - 4}" text-anchor="middle" font-size="11" fill="{MUTED}">{xlabel}</text></svg>')
     head = f'<div class="panel-title">{title}</div>' + (f'<div class="panel-sub">{sub}</div>' if sub else "")
     return f"<div>{head}{''.join(out)}</div>"
+
+
+def shrink_panel(n, before, after, c_before, c_after, ylim, w=680, h=300,
+                 xlabel="Observations in store (log scale)", ylabel=""):
+    """Shrinkage plot: per group, a line from its no-pooling to its partial-pooling estimate."""
+    n, before, after = (np.asarray(v, float) for v in (n, before, after))
+    L, R, T, B = 44, w - 12, 10, h - 36
+    xl, xh = np.log10(max(n.min() * 0.85, 1)), np.log10(n.max() * 1.15)
+    yl, yh = ylim
+    sx = lambda v: L + (np.log10(v) - xl) / (xh - xl) * (R - L)  # noqa: E731
+    sy = lambda v: B - (np.clip(v, yl, yh) - yl) / (yh - yl) * (B - T)  # noqa: E731
+    out = [f'<svg class="chart" viewBox="0 0 {w} {h}">']
+    for t in _nice_ticks(yl, yh, 5):
+        out.append(f'<line x1="{L}" x2="{R}" y1="{sy(t):.1f}" y2="{sy(t):.1f}" stroke="{GRID}"/>'
+                   f'<text x="{L-6}" y="{sy(t)+4:.1f}" text-anchor="end" font-size="11" fill="{MUTED}">{_fmt(t)}</text>')
+    for t in [10, 20, 50, 100, 200, 500]:
+        if 10 ** xl <= t <= 10 ** xh:
+            out.append(f'<text x="{sx(t):.1f}" y="{B+16}" text-anchor="middle" font-size="11" fill="{MUTED}">{t}</text>')
+    for x, a, b in zip(n, before, after):
+        out.append(f'<line x1="{sx(x):.1f}" x2="{sx(x):.1f}" y1="{sy(a):.1f}" y2="{sy(b):.1f}" stroke="{MUTED}" '
+                   f'stroke-width="1" opacity="0.5"/>')
+    for x, a in zip(n, before):
+        clipped = a < yl or a > yh
+        out.append(f'<circle cx="{sx(x):.1f}" cy="{sy(a):.1f}" r="2.8" fill="{c_before}" opacity="{0.35 if clipped else 0.75}"/>')
+    for x, b in zip(n, after):
+        out.append(f'<circle cx="{sx(x):.1f}" cy="{sy(b):.1f}" r="2.8" fill="{c_after}" opacity="0.85"/>')
+    out.append(f'<text x="{(L+R)/2}" y="{h-4}" text-anchor="middle" font-size="11" fill="{MUTED}">{xlabel}</text>')
+    if ylabel:
+        out.append(f'<text x="12" y="{(T+B)/2}" transform="rotate(-90 12 {(T+B)/2})" text-anchor="middle" '
+                   f'font-size="11" fill="{MUTED}">{ylabel}</text>')
+    out.append("</svg>")
+    return f"<div>{''.join(out)}</div>"

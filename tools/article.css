@@ -113,7 +113,8 @@ h3 { font-size: 1.1rem; font-weight: 700; line-height: 1.3; margin: 2.25rem 0 .5
 svg.chart { display: block; width: 100%; height: auto; }
 
 .panels { display: grid; grid-template-columns: 1fr 1fr; gap: .6rem 1rem; }
-@media (max-width: 599px) { .panels { grid-template-columns: 1fr; } }
+.panels.three { grid-template-columns: repeat(3, 1fr); }
+@media (max-width: 599px) { .panels, .panels.three { grid-template-columns: 1fr; } }
 .panel-title { font-size: .8rem; font-weight: 700; margin-bottom: .1rem; }
 .panel-sub { font-size: .74rem; color: var(--muted); }
 

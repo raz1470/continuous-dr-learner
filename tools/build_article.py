@@ -129,7 +129,7 @@ for key, hk in [("npcausal (R)", "npcausal (R)"), ("causal-curve TMLE", "causal-
     for col in ("rmse", "cover", "width"):
         cmp.loc[("hard", key), col] = hard.loc[hk, col] if hk in hard.index else np.nan
 CMP = [("npcausal (R)", "npcausal (R)", AQUA), ("causal-curve TMLE", "causal-curve (Python)", GREY),
-       ("DR, stacked, density weights", "This approach (stacked default)", BLUE)]
+       ("DR, stacked, density weights", "drcurves (Python)", BLUE)]
 cmp_bars = grouped_bars(["5 confounders", "50 confounders", "Harder data"],
                         [(lab, col, [cmp.loc[(st, key), "rmse"] for st in ("p5", "p50", "hard")]) for key, lab, col in CMP],
                         ylabel="RMSE of the curve")
@@ -201,7 +201,7 @@ ylim6 = tuple(np.percentile(np.r_[est_eff["none"], est_eff["partial"]], [1, 99])
 shrink_chart = shrink_panel(st_n, est_eff["none"], est_eff["partial"], ORANGE, BLUE, ylim6,
                             ylabel=f"Effect of dose {f2(a_lo)} → {f2(a_hi)}")
 BINS6 = [(0, 25, "<25"), (25, 60, "25–60"), (60, 150, "60–150"), (150, 10**6, "150+")]
-size_cats = [f"{lab}\n{int(((st_n >= lo) & (st_n < hi)).sum())} stores" for lo, hi, lab in BINS6]
+size_cats = [f"{lab} customers\n{int(((st_n >= lo) & (st_n < hi)).sum())} stores" for lo, hi, lab in BINS6]
 size_bars = grouped_bars(size_cats, [
     (lab, col, [rmse_by(eff_err[key], (st_n >= lo) & (st_n < hi)) for lo, hi, _ in BINS6])
     for key, lab, col in [("partial", "Partial pooling", BLUE), ("none", "No pooling", ORANGE),
@@ -358,7 +358,7 @@ select {{ font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px so
   <p class="s-label">Simulation 2</p>
   <h2>3. Robustness to a wrong nuisance model</h2>
 
-  <p>Every observational estimate leans on models that are approximations. With a continuous dose, the model of who gets which dose is especially easy to get wrong. Doses are often set by unwritten business rules (pricing tiers, budgets split by last year's revenue, a cap on notifications), and some segments see a narrow range of doses while others see a wide one. The outcome model can be wrong too. So the useful question isn't whether your models are right, but what happens when one of them is wrong.</p>
+  <p>Both nuisance models are approximations, and with a continuous dose the model of who gets which dose is especially easy to get wrong. Doses are often set by unwritten business rules (pricing tiers, budgets split by last year's revenue, a cap on notifications), and some segments see a narrow range of doses while others see a wide one. The outcome model can be wrong too. So the useful question isn't whether your models are right, but what happens when one of them is wrong.</p>
 
   <p>DoubleML's partially linear model has two scores. The default, partialling out, only protects against a wrong outcome model. If the treatment model is wrong, θ is biased however good the outcome model is (<a href="https://neurips.cc/virtual/2025/124095" target="_blank" rel="noopener">Valentin et al. 2025</a>). The IV-type score is doubly robust, but only for the single slope θ. What we want is a doubly robust <em>curve</em>, which is what the pseudo-outcome from section 1 provides.</p>
 
@@ -380,7 +380,7 @@ select {{ font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px so
   </div>
 
   <ul class="pts">
-    <li><strong>Outcome model wrong:</strong> the S-learner misses the curve, but DR stays close, because the weighted residuals correct most of the error.</li>
+    <li><strong>Outcome model wrong:</strong> the S-learner misses the curve, while DR stays much closer, because the weighted residuals correct most of the error.</li>
     <li><strong>Dose model wrong:</strong> DR stays close.</li>
     <li><strong>Both wrong:</strong> DR misses too. It needs at least one model right.</li>
   </ul>
@@ -399,7 +399,12 @@ select {{ font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px so
   <p>The simulation:</p>
   <ul class="pts">
     <li>The same data as section 3: 3,000 units and 50 confounders.</li>
-    <li>Two choices of learner, used for every nuisance model: boosted trees alone, or a stack that blends boosted trees with a smooth spline regression, with the mix chosen by cross-validation.</li>
+    <li>Each estimator is fitted twice, changing only the machine learning model used for the nuisance models:
+      <ul>
+        <li><strong>Boosting alone:</strong> gradient-boosted trees.</li>
+        <li><strong>A stack:</strong> two models fitted side by side, boosted trees and a spline regression (a smooth curve in each confounder, like a GAM). Their predictions are combined as a weighted average, with the weights chosen by cross-validation.</li>
+      </ul>
+    </li>
     <li>Three estimators: the S-learner, DR with density weights, and DR with balancing weights. Balancing weights skip the density: they are chosen so that, after weighting, the dose is uncorrelated with each confounder (<a href="https://doi.org/10.1515/jem-2021-0002" target="_blank" rel="noopener">Tübbicke 2022</a>).</li>
   </ul>
 
@@ -412,11 +417,12 @@ select {{ font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px so
   </div>
 
   <ul class="pts">
-    <li><strong>Boosting alone:</strong> the S-learner's curve is too flat, because boosted trees shrink the dose's effect. Density weights are far off: the boosted dose model gives some doses a near-zero probability, so their weights explode. Balancing weights, which need no density, do best.</li>
+    <li><strong>Boosting alone, S-learner:</strong> the curve is too flat, because boosted trees shrink the dose's effect.</li>
+    <li><strong>Boosting alone, weights:</strong> density weights are far off, because the boosted dose model gives some doses a near-zero probability, so their weights explode. Balancing weights, which need no density, do best.</li>
     <li><strong>Stacked:</strong> all three recover the curve. The spline regression captures the smooth relationships that trees can only approximate with steps.</li>
   </ul>
 
-  <p>That doesn't make the stack better everywhere. On harder data, with thresholds, interactions and heavy-tailed noise, boosting alone gave the more accurate outcome model: with balancing weights its error was {hardall['boosted, balancing']:.2f}, against {hardall['stacked, density']:.2f} for the stack. No learner wins everywhere. The stack hedges: it was never far from the best, while boosting alone can fail badly (its density weights had an error of {hardall['boosted, density']:.1f} on the same data).</p>
+  <p>That doesn't make the stack better everywhere: section 6 tests it on harder data, where trees have the edge.</p>
 </section>
 
 <!-- 5 -->
@@ -429,7 +435,7 @@ select {{ font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px so
   <p>There are three ways to handle the groups:</p>
   <ul class="pts">
     <li><strong>Complete pooling:</strong> one curve for everyone. Stable, but it ignores real differences between groups.</li>
-    <li><strong>No pooling:</strong> a separate curve per group. A store with 12 observations is treated as if it knew as much as one with 500. Looping DoubleML over stores does the same, and it also refits the nuisance models on each store's handful of rows.</li>
+    <li><strong>No pooling:</strong> a separate curve per group. A store with 12 customers is treated as if it knew as much as one with 500. Looping DoubleML over stores does the same, and it also refits the nuisance models on each store's handful of rows.</li>
     <li><strong>Partial pooling:</strong> in between. Each store's curve is the global curve, plus a regional deviation, plus a store deviation:</li>
   </ul>
 
@@ -439,7 +445,7 @@ select {{ font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px so
 
   <p>The simulation:</p>
   <ul class="pts">
-    <li>200 stores in 8 regions. Store sizes are long-tailed, from 8 to several hundred observations.</li>
+    <li>200 stores in 8 regions. Each row is a customer who got a personalised discount (the dose); the outcome is their spend. Stores range from 8 to several hundred customers, with a long tail of small ones.</li>
     <li>Each store's true curve is the inverted U plus a regional and a store deviation.</li>
     <li>Each store has its own baseline, which raises both its doses and its outcomes, so there is store-level confounding.</li>
     <li>Four approaches: no pooling, complete pooling, partial pooling, and DoubleML fitted per store.</li>
@@ -447,10 +453,10 @@ select {{ font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px so
 
   <div class="fig">
     <div class="fig-hdr">
-      <div class="fig-title">Error in each store's dose effect, by store size</div>
+      <div class="fig-title">Error in each store's dose effect, by number of customers in the store</div>
     </div>
     <div class="fig-body">{LEG8}{size_bars}</div>
-    <p class="fig-cap">Root mean squared error of each store's estimated change in outcome from moving the dose from {f2(a_lo)} to {f2(a_hi)}, grouped by the number of observations in the store.{" DoubleML failed to fit in " + str(n_fail) + " stores, which are left out." if n_fail else ""}</p>
+    <p class="fig-cap">Root mean squared error of each store's estimated change in outcome from moving the dose from {f2(a_lo)} to {f2(a_hi)}, grouped by the number of customers in the store.{" DoubleML failed to fit in " + str(n_fail) + " stores, which are left out." if n_fail else ""}</p>
   </div>
 
   <ul class="pts">
@@ -467,9 +473,20 @@ select {{ font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px so
 <section id="packages">
   <h2>6. How does this compare with existing packages?</h2>
 
-  <p>Two packages already estimate a single doubly robust curve with the pseudo-outcome from section 1: <a href="https://github.com/ehkennedy/npcausal" target="_blank" rel="noopener">npcausal</a> in R, Kennedy's own implementation, and <a href="https://github.com/ronikobrosly/causal-curve" target="_blank" rel="noopener">causal-curve</a> in Python, which follows the same steps. npcausal fits its nuisance models with SuperLearner, an ensemble of smooth regressions and random forests, and picks how much to smooth the curve from the data. causal-curve uses gradient boosting and a fixed amount of smoothing. Neither cross-fits the nuisance models, and neither handles groups.</p>
+  <p>Two packages already estimate a single doubly robust curve with the pseudo-outcome from section 1:</p>
+  <ul class="pts">
+    <li><strong><a href="https://github.com/ehkennedy/npcausal" target="_blank" rel="noopener">npcausal</a> (R):</strong> Kennedy's own implementation. It fits the nuisance models with SuperLearner, an ensemble of smooth regressions and random forests, and chooses how much to smooth the curve from the data.</li>
+    <li><strong><a href="https://github.com/ronikobrosly/causal-curve" target="_blank" rel="noopener">causal-curve</a> (Python):</strong> follows the same steps, with gradient boosting and a fixed amount of smoothing.</li>
+  </ul>
 
-  <p>We ran both, and the approach here with its stacked default, on three settings: the data from section 2 (5 confounders), from section 3 (50 confounders), and the harder data from section 4. Each setting has {N_HARD} datasets.</p>
+  <p>Neither cross-fits the nuisance models, and neither handles groups. Everything in this article is built on <a href="{REPO}" target="_blank" rel="noopener">drcurves</a>, an open-source Python package that does both.</p>
+
+  <p>We ran all three, each with its default settings, on three settings:</p>
+  <ul class="pts">
+    <li>The data from section 2 (5 confounders) and section 3 (50 confounders).</li>
+    <li>Harder data that favours trees: thresholds, interactions between confounders and heavy-tailed noise.</li>
+    <li>Ten simulated datasets per setting.</li>
+  </ul>
 
   <div class="fig">
     <div class="fig-hdr">
@@ -480,12 +497,12 @@ select {{ font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px so
   </div>
 
   <ul class="pts">
-    <li><strong>Smooth data (5 and 50 confounders):</strong> the stacked default is the most accurate, and its lead grows with more confounders. npcausal is close with 5 confounders but falls behind with 50.</li>
-    <li><strong>Harder data:</strong> the stacked default is still ahead of npcausal, though every method finds it harder.</li>
+    <li><strong>Smooth data (5 and 50 confounders):</strong> drcurves is the most accurate, and its lead grows with more confounders. npcausal is close with 5 confounders but falls behind with 50.</li>
+    <li><strong>Harder data:</strong> drcurves is still ahead of npcausal. Within drcurves, boosting alone with balancing weights was more accurate still ({hardall['boosted, balancing']:.2f} vs {hardall['stacked, density']:.2f}), but boosting alone with density weights failed badly ({hardall['boosted, density']:.1f}). No learner wins everywhere; the stack is rarely far from the best.</li>
     <li><strong>causal-curve</strong> trails throughout, and its intervals are around 25 times wider than the others', so they always cover the truth but tell you little.</li>
   </ul>
 
-  <p>These are our simulations, with npcausal's default learners, so treat the ranking as indicative rather than final. What isn't in doubt is what the approach here adds: curves for many groups at once (section 5) and a choice of weights for many confounders.</p>
+  <p>These are our simulations, run with each package's default settings; different data could reorder them.</p>
 </section>
 
 <!-- 7 -->
@@ -573,7 +590,7 @@ select {{ font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px so
 
   <p>The simulations use one data-generating process per question, known confounders and moderate sample sizes. They do not show how often each problem occurs in your data. The questions to ask are the same, though: is the curve likely to bend, which nuisance model are you least sure of, how many groups need their own answer, and what are you assuming about the confounders you can't see?</p>
 
-  <p>The estimator, simulations and the script that builds every chart and number on this page are in the <a href="{REPO}" target="_blank" rel="noopener">companion repo</a>.</p>
+  <p>The package, <a href="{REPO}" target="_blank" rel="noopener">drcurves</a>, has the estimator, the simulations and the script that builds every chart and number on this page. Install it with <code>pip install git+{REPO}</code>.</p>
 
   <h3>References</h3>
   <ul class="refs">
@@ -596,7 +613,7 @@ select {{ font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px so
 
 </main>
 
-<footer>Simulated data throughout. Every chart and number on this page is generated by <code>tools/build_article.py</code> in the companion repo from the outputs of the three experiment scripts.</footer>
+<footer>Simulated data throughout. Every chart and number on this page is generated by <code>tools/build_article.py</code> in the drcurves repo from the outputs of the experiment scripts.</footer>
 
 <script>
 const D = {explorer_data};

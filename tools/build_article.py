@@ -585,7 +585,7 @@ select {{ font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px so
 
   <p>The simulations use one data-generating process per question, known confounders and moderate sample sizes. They do not show how often each problem occurs in your data. The questions to ask are the same, though: is the curve likely to bend, which nuisance model are you least sure of, how many groups need their own answer, and what are you assuming about the confounders you can't see?</p>
 
-  <p>The package, <a href="{REPO}" target="_blank" rel="noopener">drcurves</a>, has the estimator, the simulations and the script that builds every chart and number on this page. Install it with <code>pip install git+{REPO}</code>.</p>
+  <p>The package, <a href="{REPO}" target="_blank" rel="noopener">drcurves</a>, has the estimator, the simulations and the script that builds every chart and number on this page.</p>
 
   <h3>References</h3>
   <ul class="refs">

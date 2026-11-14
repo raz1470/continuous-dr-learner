@@ -38,7 +38,8 @@ new, _    = model.curve(a_grid, ("r0", "unseen"))   # unseen store -> its region
 
 Inputs:
 - `X` can be an array or a DataFrame (non-numeric columns are integer-coded). Group codes are appended automatically (`add_group_codes=True`) so the nuisance models see the groups.
-- Weights: for a continuous `A` the default is `GPS()`, Kennedy et al.'s density-based weights, with a boosted model for the dose. With a few confounders its intervals had close to nominal coverage in our simulations. **With many confounders the boosted dose model breaks** (see below): for a population curve use `gps=BalancingWeights()`; for group curves, where balancing weights aren't available, use a steadier dose model, e.g. `GPS(mean_model=default_dose_model(), scale_model=default_dose_model())` (ridge + boosting stack, from `drcurves.riesz`).
+- Models: by default every nuisance model (outcome, dose mean, dose scale) is `default_model()`, a stack of a spline regression and gradient boosting blended by cross-validation. Boosting alone made density weights explode with many confounders; the stack fixed that in our simulations (see the comparison below). Pass your own sklearn regressors to override.
+- Weights: for a continuous `A` the default is `GPS()`, Kennedy et al.'s density-based weights. `BalancingWeights()` is an alternative for a population curve.
 - `gps=RieszWeights()` (automatic debiasing) learns the weight varpi(a)/pi(a|x) directly by minimising the Riesz loss with boosted trees; no density is estimated. With 50 confounders, density weights made DR worse than plug-in, while learned weights beat it (Sim 5). **But** the intervals don't account for the bias learned weights leave behind: 95% bands covered about half the time on the Sim 1 data. Use it for the point estimate when there are many confounders, and check intervals with `bootstrap_curves`.
 - `BalancingWeights()`: entropy-balancing weights that decorrelate the dose from the covariates (and their squares). Best with many covariates; population curve only (`groups=None`).
 - `StackedWeights()` (experimental) mixes the two, choosing the mix by held-out Riesz loss. That loss is noisy, dominated by a few extreme weights, so it isn't the default.
@@ -82,7 +83,7 @@ draws = model.draws(a_grid, path, n_draws=4000)             # curves for any oth
 
 ### Intervals with many covariates (read this before using on real data)
 
-`experiments/sim6_intervals.py`: population curve, boosted outcome model, Sim 5 data, 15 replications. Coverage of 95% shape bands; SE ratio = reported s.e. / actual spread (1 = right).
+`experiments/sim6_intervals.py` (run before the stacked default; to be rerun, see BACKLOG.md): population curve, boosted outcome model, Sim 5 data, 15 replications. Coverage of 95% shape bands; SE ratio = reported s.e. / actual spread (1 = right).
 
 | Confounders | Weights | Bias | RMSE | SE ratio | Pointwise | Simultaneous |
 |---|---|---|---|---|---|---|
@@ -178,16 +179,17 @@ Runtime is about 45 minutes on two cores, mostly simulations 2 and 3.
 
 ## Compared with existing packages
 
-`experiments/compare_causal_curve.py` and `experiments/compare_npcausal.py` (needs R with npcausal and SuperLearner): one population curve, 10 datasets per setting, Sim 1 data (5 confounders) and Sim 5 data (50 confounders). RMSE of the centred curve / pointwise coverage of the 95% band.
+`experiments/compare_causal_curve.py`, `compare_npcausal.py` (needs R with npcausal and SuperLearner), `compare_stacked.py` and `compare_hard.py`: one population curve, 10 datasets per setting. RMSE of the centred curve / pointwise coverage of the 95% band.
 
-| | 5 confounders | 50 confounders |
-|---|---|---|
-| [npcausal](https://github.com/ehkennedy/npcausal) (R, Kennedy) | **0.08** / 90% | 0.18 / 77% |
-| [causal-curve](https://github.com/ronikobrosly/causal-curve) TMLE (Python) | 0.54 / 100% (bands ~25× wider) | 0.30 / 100% (bands ~27× wider) |
-| this package, `BalancingWeights()` | 0.12 / 64% | **0.13** / 83% |
-| this package, default `GPS()` | 0.19 / 94% | 3.43 / 87% |
+| | 5 confounders | 50 confounders | Harder data |
+|---|---|---|---|
+| this package, stacked default (density weights) | **0.06** / 77% | **0.05** / 94% | **0.23** / 89% |
+| this package, stacked default + `BalancingWeights()` | 0.07 / 89% | 0.05 / 91% | 0.36 / 19% |
+| [npcausal](https://github.com/ehkennedy/npcausal) (R, Kennedy) | 0.08 / 90% | 0.18 / 77% | 0.30 / 13% |
+| [causal-curve](https://github.com/ronikobrosly/causal-curve) TMLE (Python) | 0.54 / 100% | 0.30 / 100% | 0.44 / 100% |
+| boosting alone (old default), density weights | 0.19 / 94% | 3.43 / 87% | 2.81 / 97% |
 
-For one population curve with a handful of confounders, npcausal is the better tool. This package is for many confounders (balancing weights, `coverage_check`) and for many curves pooled across a hierarchy, which neither package offers.
+The harder data has thresholds, interactions and heavy-tailed noise. There, boosting alone gave the best outcome model (0.18 with balancing weights, 43% coverage): no learner wins everywhere, which is why the default stacks a spline regression with boosting. causal-curve's bands are 25+ times wider than the others'.
 
 ## References
 

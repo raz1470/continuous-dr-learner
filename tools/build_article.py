@@ -105,41 +105,46 @@ for om, dm, title in SC:
         ser.append(item)
     sim2_panels.append(line_panel(g2, ser, title, "", ylim=(-lim_e, lim_e)))
 
-bal = s2c["B|dr_balancing"]
-blo, bhi = np.percentile(bal, [5, 95], axis=0)
-practice_panel = line_panel(g2, [
-    {"y": s2c["B|slearner"].mean(0), "color": YELLOW, "width": 2},
-    {"y": s2c["B|dr_density"].mean(0), "color": ORANGE, "width": 2},
-    {"y": bal.mean(0), "lo": blo, "hi": bhi, "color": BLUE, "width": 2.6},
-    {"y": t2, "color": INK, "dash": "5 4", "width": 2},
-], "", "", ylim=ylim2, w=680, h=280)
+def practice(prefix, title):
+    return line_panel(g2, [
+        {"y": s2c[f"{prefix}|slearner"].mean(0), "color": YELLOW, "width": 2},
+        {"y": s2c[f"{prefix}|dr_density"].mean(0), "color": ORANGE, "width": 2},
+        {"y": s2c[f"{prefix}|dr_balancing"].mean(0), "color": BLUE, "width": 2.4},
+        {"y": t2, "color": INK, "dash": "5 4", "width": 2},
+    ], title, "", ylim=ylim2)
 
-# ============================================================ calibrated band
-s6 = pd.read_csv(RES / "sim6_intervals_summary.csv")
+
+practice_panels = practice("B", "Boosting alone") + practice("D", "Stacked: splines + boosting")
+
+# ============================================================ package comparison
 cmp = pd.read_csv(RES / "compare_packages_summary.csv").set_index(["setting", "method"])
+_hard = []
+for fp in sorted((RES / "cache").glob("hard_*.json")):
+    for k, v in json.loads(fp.read_text()).items():
+        _hard.append(dict(method=k, **v))
+hard = pd.DataFrame(_hard).groupby("method")[["rmse", "cover", "width"]].mean()
+N_HARD = len(list((RES / "cache").glob("hard_*.json")))
+for key, hk in [("npcausal (R)", "npcausal (R)"), ("causal-curve TMLE", "causal-curve TMLE"),
+                ("DR, stacked, density weights", "stacked, density")]:
+    for col in ("rmse", "cover", "width"):
+        cmp.loc[("hard", key), col] = hard.loc[hk, col] if hk in hard.index else np.nan
 CMP = [("npcausal (R)", "npcausal (R)", AQUA), ("causal-curve TMLE", "causal-curve (Python)", GREY),
-       ("DR, balancing weights", "DR, balancing weights", BLUE)]
-cmp_bars = grouped_bars(["5 confounders", "50 confounders"],
-                        [(lab, col, [cmp.loc[(st, key), "rmse"] for st in ("p5", "p50")]) for key, lab, col in CMP],
+       ("DR, stacked, density weights", "This approach (stacked default)", BLUE)]
+cmp_bars = grouped_bars(["5 confounders", "50 confounders", "Harder data"],
+                        [(lab, col, [cmp.loc[(st, key), "rmse"] for st in ("p5", "p50", "hard")]) for key, lab, col in CMP],
                         ylabel="RMSE of the curve")
 LEG9 = legend([(lab, col, "") for _, lab, col in CMP])
-def cv(st, key): return pct(cmp.loc[(st, key), "cover"])
-s6bal = s6[(s6.p == 50) & (s6.weights == "balancing")].iloc[0]
-cb = json.loads((RES / "sim5_calibrated_band.json").read_text())
-sys.path.insert(0, str(ROOT / "src"))
-from drcurves.simulate import sim_high_dim  # noqa: E402
-_, _Ab6, _, _f6 = sim_high_dim(n=200_000, p=50, seed=0)
-_g6 = np.linspace(*np.quantile(_Ab6, [0.05, 0.95]), 40)
-t6 = _f6(_g6) - _f6(_g6).mean()
-CRIT = cb["critical"]
-cov_cal = []
-for fp in sorted((RES / "cache").glob("sim6_p50_*.json")):
-    d6 = json.loads(fp.read_text())["balancing"]
-    cov_cal.append([np.mean(np.abs(np.array(d6["est"]) - t6) <= c * np.array(d6["se"])) for c in (1.96, CRIT)])
-cov_cal = np.mean(cov_cal, axis=0)
-cal_panel = grouped_bars(["Default band\n1.96 standard errors", f"Calibrated band\n{CRIT:.1f} standard errors"],
-                         [("Coverage", BLUE, list(cov_cal))], h=240, ylabel="Doses covered",
-                         ref=(0.95, "95% target"), fmt=lambda v: f"{v:.0%}", vmax=1.08)
+hardall = hard["rmse"]
+
+# ============================================================ DiD
+_did = [json.loads(fp.read_text()) for fp in sorted((RES / "cache").glob("did_*.json"))]
+N_DID = len(_did)
+did = {k: (np.mean([d[k]["rmse"] for d in _did]), np.mean([d[k]["cover"] for d in _did]))
+       for k in ("levels", "lagged", "did", "placebo")}
+did_bars = grouped_bars(["Adjust for X", "Adjust for X and\nthe pre-period outcome", "DiD: fit on the change"],
+                        [("Error", BLUE, [did[k][0] for k in ("levels", "lagged", "did")])],
+                        h=240, ylabel="RMSE of the curve")
+
 
 cov_po = p2("partialling out", "right", "wrong", "coverage")
 plr_cov_text = "never contained" if cov_po == 0 else f"contained only {pct(cov_po)} of the time"
@@ -268,10 +273,10 @@ select {{ font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px so
   <a href="#plr" class="active">1 · One slope vs a curve</a>
   <a href="#shape">2 · Nonlinear effects</a>
   <a href="#robust">3 · Robustness</a>
-  <a href="#confounders">4 · Many confounders</a>
-  <a href="#method">5 · Intervals</a>
-  <a href="#many">6 · Many curves</a>
-  <a href="#packages">7 · Existing packages</a>
+  <a href="#confounders">4 · Nuisance models</a>
+  <a href="#many">5 · Many curves</a>
+  <a href="#packages">6 · Existing packages</a>
+  <a href="#did">7 · Assumptions</a>
   <a href="#faq">Questions</a>
   <a href="#together">Conclusion</a>
 </nav>
@@ -334,7 +339,7 @@ select {{ font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px so
     <li>4,000 units and five covariates.</li>
     <li>Three covariates drive both the dose (through nonlinear functions) and the outcome, so they confound the effect. A fourth changes how much the dose varies between units; the fifth does nothing.</li>
     <li>The true effect is an inverted U in one dataset and a saturating curve in the other.</li>
-    <li>Both methods use the same gradient-boosted models for every nuisance model.</li>
+    <li>Both methods use the same learner for every nuisance model: a stack of gradient boosting and a spline regression (section 4 explains why).</li>
   </ul>
 
   <div class="fig">
@@ -387,79 +392,37 @@ select {{ font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px so
 <!-- 4 -->
 <section id="confounders">
   <p class="s-label">Simulation 2, continued</p>
-  <h2>4. Dealing with many confounders</h2>
+  <h2>4. Choosing the nuisance models</h2>
 
-  <p>Real data rarely has a handful of confounders. A customer table has dozens of features: tenure, spend history, products held, past contacts. Most of them nudge both the dose a customer gets and their outcome a little. You don't know which matter or how, so both nuisance models end up as flexible, regularised machine learning models. Regularisation is where the trouble starts.</p>
+  <p>Real data rarely has a handful of confounders. A customer table has dozens of features: tenure, spend history, products held, past contacts. Most of them nudge both the dose a customer gets and their outcome a little. You don't know which matter or how, so both nuisance models end up as flexible, regularised machine learning models. Which learner you pick turns out to matter more than you might expect.</p>
 
   <p>The simulation:</p>
   <ul class="pts">
     <li>The same data as section 3: 3,000 units and 50 confounders.</li>
-    <li>All nuisance models are boosted trees, since in practice you don't know which model is right.</li>
-    <li>Three estimators: the S-learner, DR with density weights, and DR with balancing weights.</li>
+    <li>Two choices of learner, used for every nuisance model: boosted trees alone, or a stack that blends boosted trees with a smooth spline regression, with the mix chosen by cross-validation.</li>
+    <li>Three estimators: the S-learner, DR with density weights, and DR with balancing weights. Balancing weights skip the density: they are chosen so that, after weighting, the dose is uncorrelated with each confounder (<a href="https://doi.org/10.1515/jem-2021-0002" target="_blank" rel="noopener">Tübbicke 2022</a>).</li>
   </ul>
-
-  <p>A boosted outcome model shrinks the dose's effect. Correlated features absorb part of it, so the S-learner's curve flattens. DR corrects this with weights, so everything rests on how good those weights are.</p>
-
-  <p>The goal of the weights is to make the data look as if doses had been handed out at random. A unit that got an unusual dose for someone like them is rare evidence, so it counts more. A unit that got the dose you'd expect counts less. There are two ways to build those weights.</p>
-
-  <p><strong>Density weights</strong> measure "unusual" directly. A boosted model predicts each unit's expected dose and how much it typically varies. From that you get the probability of the dose the unit actually received, and the weight is roughly one over it. The problem is the tails. When the model says a dose was very unlikely, the probability is close to zero, so the weight is huge. Small errors in a near-zero probability become very large errors in the weight. A handful of units end up dominating the curve. That's a problem with the boosted dose model rather than with density weights as such: as section 7 shows, a dose model that mixes smooth regressions with trees holds up much better.</p>
-
-  <p><strong>Balancing weights</strong> skip the probability altogether. They target the property we actually want: after weighting, the dose shouldn't be predictable from the confounders. They find the set of weights that are as close to equal as possible, subject to the weighted dose being uncorrelated with every confounder (and its square) (<a href="https://doi.org/10.1515/jem-2021-0002" target="_blank" rel="noopener">Tübbicke 2022</a>). It's the same idea as reweighting a survey so its age and region mix matches the census. Because there's no probability to divide by, there's nothing to blow up.</p>
 
   <div class="fig">
     <div class="fig-hdr">
-      <div class="fig-title">Estimated curves with boosted nuisance models, 50 confounders</div>
+      <div class="fig-title">Estimated curves by choice of learner, 50 confounders</div>
     </div>
-    <div class="fig-body">{LEG5}<div class="panels" style="grid-template-columns:1fr">{practice_panel}</div></div>
-    <p class="fig-cap">Average estimated curve over {N_REPS2} simulated datasets, all with the same boosted outcome model. The blue band shows where 90% of the individual curves with balancing weights fall. Dashed black: the true curve. Lines that leave the chart are cut off at its edge.</p>
+    <div class="fig-body">{LEG5}<div class="panels">{practice_panels}</div></div>
+    <p class="fig-cap">Average estimated curve over {N_REPS2} simulated datasets. Left: every nuisance model is boosted trees. Right: every nuisance model is the stack. Dashed black: the true curve. Curves are centred; the density-weight curve on the left runs off the chart.</p>
   </div>
 
   <ul class="pts">
-    <li><strong>S-learner:</strong> roughly the right shape, but too flat.</li>
-    <li><strong>DR with boosted density weights:</strong> far off. A few units got doses the boosted model thought were nearly impossible, so their weights are huge and they drag the curve with them.</li>
-    <li><strong>DR with balancing weights:</strong> recovers the shape, but its 95% intervals are too narrow and miss the true curve more often than they should.</li>
+    <li><strong>Boosting alone:</strong> the S-learner's curve is too flat, because boosted trees shrink the dose's effect. Density weights are far off: the boosted dose model gives some doses a near-zero probability, so their weights explode. Balancing weights, which need no density, do best.</li>
+    <li><strong>Stacked:</strong> all three recover the curve. The spline regression captures the smooth relationships that trees can only approximate with steps.</li>
   </ul>
+
+  <p>That doesn't make the stack better everywhere. On harder data, with thresholds, interactions and heavy-tailed noise, boosting alone gave the more accurate outcome model: with balancing weights its error was {hardall['boosted, balancing']:.2f}, against {hardall['stacked, density']:.2f} for the stack. No learner wins everywhere. The stack hedges: it was never far from the best, while boosting alone can fail badly (its density weights had an error of {hardall['boosted, density']:.1f} on the same data).</p>
 </section>
 
 <!-- 5 -->
-<section id="method">
-  <h2>5. Intervals</h2>
-
-  <p>A curve only helps a decision if you know how far to trust it. The DR curve comes with a 95% band from step 3. With five confounders (section 2) that band was close to right. With 50 confounders and balancing weights, it contained the true curve at only {pct(s6bal['pointwise'])} of doses.</p>
-
-  <p>The band's width is fine: it matches how much the curve moves between datasets. The problem is that the curve is slightly off, because balancing removes most of the confounding, not all of it. A band centred in the wrong place misses, and more data won't fix that: the band shrinks, but the bias doesn't.</p>
-
-  <p>The fix is to measure the miss on your own data: inject a known effect and see if you get it back.</p>
-  <ol class="pts">
-    <li>Keep your real confounders and doses.</li>
-    <li>Replace the outcome with a synthetic one whose curve you chose.</li>
-    <li>Rerun the whole pipeline 20–30 times and count how often the band misses.</li>
-    <li>Use the multiplier that would have given 95% in place of 1.96.</li>
-  </ol>
-
-  <p>This is a plasmode simulation (<a href="https://doi.org/10.1016/j.csda.2013.10.018" target="_blank" rel="noopener">Franklin et al. 2014</a>). It works because the synthetic data keep your confounding, so the pipeline is off by about as much as on the real data.</p>
-
-  <p>Treat the multiplier as a rough guide. The synthetic outcome comes from your own fitted model, so it's easier than reality, which pushes the multiplier down. Keeping the real doses can make weighting methods look more biased than they are (<a href="https://arxiv.org/abs/2504.11740" target="_blank" rel="noopener">Shaw et al. 2025</a>), which pushes it up.</p>
-
-  <p>We ran it on one simulated dataset: {cb['n_reps']} runs gave a multiplier of {CRIT:.1f}. The chart applies it to all {int(s6bal['reps'])}.</p>
-
-  <div class="fig">
-    <div class="fig-hdr">
-      <div class="fig-title">How often the 95% band contains the true curve, 50 confounders</div>
-    </div>
-    <div class="fig-body">{cal_panel}</div>
-    <p class="fig-cap">Share of doses at which the band contains the true curve, averaged over {int(s6bal['reps'])} simulated datasets with 50 confounders and DR with balancing weights. The dashed line is the 95% a band should reach.</p>
-  </div>
-
-  <p>The default band falls well short of 95%; the calibrated one gets back to it.</p>
-
-  <p>This calibrates the band dose by dose. For claims about the whole shape ("the curve peaks between x and y"), the same check underestimated the multiplier needed, so be more cautious there.</p>
-</section>
-
-<!-- 6 -->
 <section id="many">
   <p class="s-label">Simulation 3</p>
-  <h2>6. Many curves: borrow strength across the hierarchy</h2>
+  <h2>5. Many curves: borrow strength across the hierarchy</h2>
 
   <p>The decision is rarely one curve for the whole business. Pricing teams set discounts by category, marketing teams set budgets by country and channel, CRM teams set cadence by segment. The groups are nested (stores in regions, products in categories, campaigns in channels), and their sizes follow a long tail: a few big ones with plenty of data and many small ones with very little.</p>
 
@@ -496,39 +459,75 @@ select {{ font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px so
     <li><strong>Partial pooling:</strong> the lowest error in small stores, because it pulls them toward their region. In big stores it matches no pooling, because the data overrules the shrinkage.</li>
   </ul>
 
-  <p>The 95% bands for each store's curve are a little short, covering the truth about {pct(s4b.loc[('bayes','all'),'pointwise'])} of the time.</p>
 </section>
 
 
 
-<!-- 7 -->
+<!-- 6 -->
 <section id="packages">
-  <h2>7. How does this compare with existing packages?</h2>
+  <h2>6. How does this compare with existing packages?</h2>
 
-  <p>Two packages already estimate a single doubly robust curve with the pseudo-outcome from section 1: <a href="https://github.com/ehkennedy/npcausal" target="_blank" rel="noopener">npcausal</a> in R, Kennedy's own implementation, and <a href="https://github.com/ronikobrosly/causal-curve" target="_blank" rel="noopener">causal-curve</a> in Python, which follows the same steps. They differ in the details. npcausal fits its nuisance models with SuperLearner, an ensemble that mixes smooth regressions with random forests, and picks how much to smooth the curve from the data. causal-curve uses gradient boosting and a fixed amount of smoothing. Neither cross-fits the nuisance models, and neither handles groups.</p>
+  <p>Two packages already estimate a single doubly robust curve with the pseudo-outcome from section 1: <a href="https://github.com/ehkennedy/npcausal" target="_blank" rel="noopener">npcausal</a> in R, Kennedy's own implementation, and <a href="https://github.com/ronikobrosly/causal-curve" target="_blank" rel="noopener">causal-curve</a> in Python, which follows the same steps. npcausal fits its nuisance models with SuperLearner, an ensemble of smooth regressions and random forests, and picks how much to smooth the curve from the data. causal-curve uses gradient boosting and a fixed amount of smoothing. Neither cross-fits the nuisance models, and neither handles groups.</p>
 
-  <p>We ran both on the data from section 2 (5 confounders) and section 4 (50 confounders), {int(cmp.loc[("p5", "npcausal (R)"), "n"])} datasets each, alongside DR with balancing weights.</p>
+  <p>We ran both, and the approach here with its stacked default, on three settings: the data from section 2 (5 confounders), from section 3 (50 confounders), and the harder data from section 4. Each setting has {N_HARD} datasets.</p>
 
   <div class="fig">
     <div class="fig-hdr">
       <div class="fig-title">Error in the estimated curve, by package</div>
     </div>
     <div class="fig-body">{LEG9}{cmp_bars}</div>
-    <p class="fig-cap">Root mean squared error between the estimated and the true curve, averaged over {int(cmp.loc[("p5", "npcausal (R)"), "n"])} simulated datasets per setting. Curves are centred.</p>
+    <p class="fig-cap">Root mean squared error between the estimated and the true curve, averaged over the simulated datasets in each setting. Curves are centred.</p>
   </div>
 
   <ul class="pts">
-    <li><strong>5 confounders:</strong> npcausal is the most accurate, and its 95% intervals cover the truth {cv("p5", "npcausal (R)")} of the time. Its mix of smooth models suits smooth data like this.</li>
-    <li><strong>50 confounders:</strong> balancing weights are the most accurate, with npcausal close behind. Both sets of intervals fall short ({cv("p50", "DR, balancing weights")} and {cv("p50", "npcausal (R)")} coverage), which is the problem section 5 deals with.</li>
-    <li><strong>causal-curve</strong> trails both, and its intervals are around 25 times wider than the others', so they always cover the truth but tell you little.</li>
+    <li><strong>Smooth data (5 and 50 confounders):</strong> the stacked default is the most accurate, and its lead grows with more confounders. npcausal is close with 5 confounders but falls behind with 50.</li>
+    <li><strong>Harder data:</strong> the stacked default is still ahead of npcausal, though every method finds it harder.</li>
+    <li><strong>causal-curve</strong> trails throughout, and its intervals are around 25 times wider than the others', so they always cover the truth but tell you little.</li>
   </ul>
 
-  <p>If you need one curve for the whole population and have a handful of confounders, npcausal is a good choice. What the approach here adds is the many-confounders case (balancing weights and calibrated intervals) and many curves at once (section 6).</p>
+  <p>These are our simulations, with npcausal's default learners, so treat the ranking as indicative rather than final. What isn't in doubt is what the approach here adds: curves for many groups at once (section 5) and a choice of weights for many confounders.</p>
+</section>
+
+<!-- 7 -->
+<section id="did">
+  <p class="s-label">Simulation 4</p>
+  <h2>7. Your assumptions matter more than your estimator</h2>
+
+  <p>Everything so far assumes you've measured the confounders. Often you haven't. A customer's underlying complexity, a team's culture, a store's location: stable traits that push both the dose and the outcome, and never appear in the data. No estimator fixes that on its own. A different assumption can.</p>
+
+  <p>If you observe the outcome before the dose changed, and the hidden trait is stable over time, difference-in-differences removes it: fit the same method on the <em>change</em> in outcome rather than its level. To compare doses, rather than just treated against untreated, this needs a stronger form of parallel trends: units on different doses would have followed the same path had their doses been the same (<a href="https://arxiv.org/abs/2107.02637" target="_blank" rel="noopener">Callaway, Goodman-Bacon and Sant'Anna 2024</a>).</p>
+
+  <p>The simulation:</p>
+  <ul class="pts">
+    <li>3,000 units, five observed confounders and one hidden, stable trait that raises both the dose and the outcome.</li>
+    <li>Two periods before the dose, one after. The true effect is the inverted U.</li>
+    <li>Three ways to use the same DR estimator: adjust for X; adjust for X and the pre-period outcome; or fit on the change in outcome (DiD).</li>
+  </ul>
+
+  <div class="fig">
+    <div class="fig-hdr">
+      <div class="fig-title">Error in the estimated curve with a hidden, stable trait</div>
+    </div>
+    <div class="fig-body">{did_bars}</div>
+    <p class="fig-cap">Root mean squared error between the estimated and the true curve, averaged over {N_DID} simulated datasets. Curves are centred.</p>
+  </div>
+
+  <ul class="pts">
+    <li><strong>Adjust for X:</strong> far off, because the hidden trait is still confounding the curve.</li>
+    <li><strong>Adjust for the pre-period outcome too:</strong> better, because the past outcome partly stands in for the trait, but still biased.</li>
+    <li><strong>DiD:</strong> recovers the curve, because the trait cancels when you take the change.</li>
+  </ul>
+
+  <p>The ranking flips if the dose responds to past outcomes rather than to a stable trait: then adjusting for the pre-period outcome is right and DiD is biased. You can't tell which from the data alone. A placebo helps: fit the curve on the change between two pre-periods, where the dose can't have had an effect yet. A clearly non-flat curve warns that parallel trends doesn't hold. Judge it by its size relative to the effect you care about; its bands are narrow enough to flag deviations too small to matter.</p>
 </section>
 
 <!-- FAQ -->
 <section id="faq">
   <h2>Frequently asked questions</h2>
+
+  <details class="faq"><summary>Can I trust the intervals?</summary>
+    <p>Usually, when the nuisance models are good: with the stacked default and 50 confounders, the 95% bands contained the true curve {pct(cmp.loc[("p50", "DR, stacked, density weights"), "cover"])} of the time. When the models are off they are too narrow, because the band doesn't account for bias. Check on your own data: keep your real confounders and doses, simulate an outcome with a known curve, rerun the whole pipeline 20 to 30 times, and count how often the band contains it. This is a plasmode simulation (<a href="https://doi.org/10.1016/j.csda.2013.10.018" target="_blank" rel="noopener">Franklin et al. 2014</a>), and if the bands fall short it tells you how much to widen them.</p>
+  </details>
 
   <details class="faq"><summary>When shouldn't I use this?</summary>
     <ul class="pts">
@@ -562,17 +561,17 @@ select {{ font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px so
 <section id="together">
   <h2>Conclusion</h2>
 
-  <p>The partially linear model is a good tool used for the wrong question. With a continuous treatment, the question is about a curve, and the three simulations show where a single coefficient falls short:</p>
+  <p>The partially linear model is a good tool used for the wrong question. With a continuous treatment, the question is about a curve:</p>
 
   <ul class="pts">
     <li><strong>Shape.</strong> A single slope can't describe a curve. On an inverted U it can come out near zero, as if the dose didn't matter. Estimate the whole curve instead.</li>
-    <li><strong>Robustness.</strong> The default partialling-out score breaks when the treatment model is wrong; the IV-type score fixes that, but only for θ. The DR pseudo-outcome survives either model being wrong, for the whole curve.</li>
-    <li><strong>Many confounders.</strong> With dozens of confounders, the S-learner flattens the curve and density weights from a boosted dose model blow up. Balancing weights hold up.</li>
-    <li><strong>Intervals.</strong> With many confounders the default band misses, because the curve is slightly biased. Calibrate it with a plasmode simulation on your own data.</li>
-    <li><strong>Many curves.</strong> Looping over groups gives noise for the small ones. Partial pooling gives every group a curve, shrinks the small ones toward their parent, and lets the big ones speak for themselves.</li>
+    <li><strong>Robustness.</strong> The DR pseudo-outcome survives either nuisance model being wrong, for the whole curve, not just for θ.</li>
+    <li><strong>Learners.</strong> Boosting alone flattens the curve and breaks density weights. Stack a smooth learner with boosting; no single learner wins everywhere.</li>
+    <li><strong>Many curves.</strong> Partial pooling gives every group a curve, shrinks the small ones toward their parent, and lets the big ones speak for themselves.</li>
+    <li><strong>Assumptions.</strong> If a stable trait you can't measure drives both dose and outcome, fit the same method on the change in outcome (DiD), and run a placebo on the pre-periods.</li>
   </ul>
 
-  <p>The simulations use one data-generating process per question, known confounders and moderate sample sizes. They do not show how often each problem occurs in your data. The questions to ask are the same, though: is the curve likely to bend, which nuisance model are you least sure of, and how many groups need their own answer?</p>
+  <p>The simulations use one data-generating process per question, known confounders and moderate sample sizes. They do not show how often each problem occurs in your data. The questions to ask are the same, though: is the curve likely to bend, which nuisance model are you least sure of, how many groups need their own answer, and what are you assuming about the confounders you can't see?</p>
 
   <p>The estimator, simulations and the script that builds every chart and number on this page are in the <a href="{REPO}" target="_blank" rel="noopener">companion repo</a>.</p>
 
@@ -580,6 +579,7 @@ select {{ font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px so
   <ul class="refs">
     <li>Bach, P., Chernozhukov, V., Kurz, M. S. and Spindler, M. (2022). <a href="https://jmlr.org/papers/v23/21-0862.html" target="_blank" rel="noopener">DoubleML: an object-oriented implementation of double machine learning in Python</a>. <em>Journal of Machine Learning Research</em>, 23(53), 1–6.</li>
     <li>Chernozhukov, V. et al. (2018). <a href="https://arxiv.org/abs/1608.00060" target="_blank" rel="noopener">Double/debiased machine learning for treatment and structural parameters</a>. <em>The Econometrics Journal</em>, 21(1), C1–C68.</li>
+    <li>Callaway, B., Goodman-Bacon, A. and Sant'Anna, P. H. C. (2024). <a href="https://arxiv.org/abs/2107.02637" target="_blank" rel="noopener">Difference-in-differences with a continuous treatment</a>. arXiv:2107.02637.</li>
     <li>Colangelo, K. and Lee, Y.-Y. (2020). <a href="https://arxiv.org/abs/2004.03036" target="_blank" rel="noopener">Double debiased machine learning nonparametric inference with continuous treatments</a>. arXiv:2004.03036.</li>
     <li>Eilers, P. and Marx, B. (1996). Flexible smoothing with B-splines and penalties. <em>Statistical Science</em>, 11(2), 89–121.</li>
     <li>Franklin, J. M., Schneeweiss, S., Polinski, J. M. and Rassen, J. A. (2014). <a href="https://doi.org/10.1016/j.csda.2013.10.018" target="_blank" rel="noopener">Plasmode simulation for the evaluation of pharmacoepidemiologic methods in complex healthcare databases</a>. <em>Computational Statistics &amp; Data Analysis</em>, 72, 219–226.</li>
@@ -589,7 +589,6 @@ select {{ font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px so
     <li>Kim, Y.-J. and Gu, C. (2004). Smoothing spline Gaussian regression: more scalable computation via efficient approximation. <em>Journal of the Royal Statistical Society: Series B</em>, 66(2), 337–356.</li>
     <li>Klosin, S. (2021). <a href="https://arxiv.org/abs/2104.10334" target="_blank" rel="noopener">Automatic double machine learning for continuous treatment effects</a>. arXiv:2104.10334.</li>
     <li>Marra, G. and Wood, S. (2012). <a href="https://doi.org/10.1111/j.1467-9469.2011.00760.x" target="_blank" rel="noopener">Coverage properties of confidence intervals for generalized additive model components</a>. <em>Scandinavian Journal of Statistics</em>, 39(1), 53–74.</li>
-    <li>Shaw, P. A., Gruber, S., Williamson, B. D., Desai, R., Shortreed, S. M., Krakauer, C., Nelson, J. C. and van der Laan, M. J. (2025). <a href="https://arxiv.org/abs/2504.11740" target="_blank" rel="noopener">A cautionary note for plasmode simulation studies in the setting of causal inference</a>. arXiv:2504.11740.</li>
     <li>Tübbicke, S. (2022). <a href="https://doi.org/10.1515/jem-2021-0002" target="_blank" rel="noopener">Entropy balancing for continuous treatments</a>. <em>Journal of Econometric Methods</em>, 11(1), 71–89.</li>
     <li>Valentin, S., Detommaso, G., Li, Y., Opper, M. and Brueckner, M. (2025). <a href="https://neurips.cc/virtual/2025/124095" target="_blank" rel="noopener">On double robustness in double machine learning</a>. NeurIPS 2025 Workshop CauScien.</li>
   </ul>

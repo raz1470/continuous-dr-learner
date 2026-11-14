@@ -13,7 +13,7 @@ from sklearn.ensemble import HistGradientBoostingRegressor as HGB
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from _style import C, INK, plt  # noqa: E402
-from drcurves import fit_dose_response  # noqa: E402
+from drcurves import default_model, fit_dose_response  # noqa: E402
 from drcurves.simulate import sim_nonlinear  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -26,7 +26,7 @@ for ax, curve in zip(axes, ["inverted_u", "saturating"]):
     X, A, Y, f = sim_nonlinear(n=4000, curve=gen, seed=1)
 
     np.random.seed(0)   # DoubleML draws its fold split from numpy's global RNG
-    plr = DoubleMLPLR(DoubleMLData.from_arrays(X, Y, A), hgb(), hgb(), n_folds=5)
+    plr = DoubleMLPLR(DoubleMLData.from_arrays(X, Y, A), default_model(), default_model(), n_folds=5)
     plr.fit()
     theta, theta_se = plr.coef[0], plr.se[0]
 
@@ -67,7 +67,7 @@ policy = []
 for shift in [-0.5, 0.0, 0.5]:
     X, A, Y, f = sim_nonlinear(n=4000, curve="inverted_u_centred", seed=1, shift=shift)
     np.random.seed(0)
-    plr = DoubleMLPLR(DoubleMLData.from_arrays(X, Y, A), hgb(), hgb(), n_folds=5).fit()
+    plr = DoubleMLPLR(DoubleMLData.from_arrays(X, Y, A), default_model(), default_model(), n_folds=5).fit()
     policy.append(dict(shift=shift, mean_a=float(A.mean()), theta=float(plr.coef[0]),
                        se=float(plr.se[0])))
 curves_out["policy_shift"] = policy

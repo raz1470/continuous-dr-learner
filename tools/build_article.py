@@ -502,7 +502,6 @@ select {{ font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px so
     <li><strong>causal-curve</strong> trails throughout, and its intervals are {CC_RATIO} times wider than the others', so they always cover the truth but tell you little.</li>
   </ul>
 
-  <p>These are our simulations, run with each package's default settings; different data could reorder them.</p>
 </section>
 
 <!-- 7 -->

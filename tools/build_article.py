@@ -424,11 +424,7 @@ select {{ font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px so
     <p class="fig-cap">Average estimated curve over {N_REPS2} simulated datasets. Left: every nuisance model is boosted trees. Right: every nuisance model is the stack. Dashed black: the true curve. Curves are centred; the density-weight curve on the left runs off the chart.</p>
   </div>
 
-  <ul class="pts">
-    <li><strong>Boosting alone, S-learner:</strong> the curve is too flat, because boosted trees shrink the dose's effect.</li>
-    <li><strong>Boosting alone, weights:</strong> density weights are far off, because the boosted dose model gives some doses a near-zero probability, so their weights explode. Balancing weights, which need no density, do best.</li>
-    <li><strong>Stacked:</strong> all three recover the curve. The spline regression captures the smooth relationships that trees can only approximate with steps.</li>
-  </ul>
+  <p>With boosting alone, the S-learner's curve is too flat, because boosted trees shrink the dose's effect. Density weights are far off: the boosted dose model gives some doses a near-zero probability, so their weights explode. Balancing weights, which need no density, do best. With the stack, all three recover the curve, because the spline regression captures the smooth relationships that trees can only approximate with steps.</p>
 
   <p>In practice: with the stack, density weights work well; if you use boosting alone, use balancing weights instead. That doesn't make the stack better everywhere: section 6 tests it on harder data, where trees have the edge.</p>
 </section>

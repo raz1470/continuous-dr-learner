@@ -80,7 +80,7 @@ sim1_panels = []
 for key, title in [("inverted_u", "Inverted-U effect"), ("saturating", "Saturating effect")]:
     d = s1[key]
     g, dr, se = np.array(d["grid"]), np.array(d["dr"]), np.array(d["dr_se"])
-    sub = f"DoubleML θ = {d['theta']:.2f} (s.e. {d['theta_se']:.2f})"
+    sub = ""
     sim1_panels.append(line_panel(g, [
         {"y": dr, "lo": dr - 1.96 * se, "hi": dr + 1.96 * se, "color": BLUE},
         {"y": d["plr"], "color": ORANGE},
@@ -122,19 +122,31 @@ _hard = []
 for fp in sorted((RES / "cache").glob("hard_*.json")):
     for k, v in json.loads(fp.read_text()).items():
         _hard.append(dict(method=k, **v))
-hard = pd.DataFrame(_hard).groupby("method")[["rmse", "cover", "width"]].mean()
+_hd = pd.DataFrame(_hard)
+hard = _hd.groupby("method")[["rmse", "cover", "width"]].mean()          # all datasets (within-drcurves comparisons)
 N_HARD = len(list((RES / "cache").glob("hard_*.json")))
+# package comparison on matched datasets: those where every package ran
+_files = sorted((RES / "cache").glob("hard_*.json"))
+_ok = [json.loads(fp.read_text()) for fp in _files]
+_ok = [d for d in _ok if all(k in d for k in ("npcausal (R)", "causal-curve TMLE", "stacked, density"))]
+N_HARD_MATCH, N_HARD_FAIL = len(_ok), N_HARD - len(_ok)
+hard_match = pd.Series({k: np.mean([d[k]["rmse"] for d in _ok]) for k in ("npcausal (R)", "causal-curve TMLE", "stacked, density")})
+hard_match_w = pd.Series({k: np.mean([d[k]["width"] for d in _ok]) for k in ("npcausal (R)", "causal-curve TMLE", "stacked, density")})
 for key, hk in [("npcausal (R)", "npcausal (R)"), ("causal-curve TMLE", "causal-curve TMLE"),
                 ("DR, stacked, density weights", "stacked, density")]:
     for col in ("rmse", "cover", "width"):
-        cmp.loc[("hard", key), col] = hard.loc[hk, col] if hk in hard.index else np.nan
+        cmp.loc[("hard", key), col] = (hard_match[hk] if col == "rmse" else hard_match_w[hk] if col == "width"
+                                       else hard.loc[hk, col])
 CMP = [("npcausal (R)", "npcausal (R)", AQUA), ("causal-curve TMLE", "causal-curve (Python)", GREY),
        ("DR, stacked, density weights", "drcurves (Python)", BLUE)]
 cmp_bars = grouped_bars(["5 confounders", "50 confounders", "Harder data"],
                         [(lab, col, [cmp.loc[(st, key), "rmse"] for st in ("p5", "p50", "hard")]) for key, lab, col in CMP],
                         ylabel="RMSE of the curve")
 LEG9 = legend([(lab, col, "") for _, lab, col in CMP])
-hardall = hard["rmse"]
+hardall = pd.Series({k: np.mean([d[k]["rmse"] for d in _ok]) for k in _ok[0]})   # matched datasets
+_ratios = [cmp.loc[(st, "causal-curve TMLE"), "width"] / cmp.loc[(st, k), "width"]
+           for st in ("p5", "p50", "hard") for k in ("npcausal (R)", "DR, stacked, density weights")]
+CC_RATIO = f"{int(np.floor(min(_ratios) / 5) * 5) or 5} to {int(np.ceil(max(_ratios) / 10) * 10)}"
 
 # ============================================================ DiD
 _did = [json.loads(fp.read_text()) for fp in sorted((RES / "cache").glob("did_*.json"))]
@@ -148,6 +160,8 @@ did_bars = grouped_bars(["Adjust for X", "Adjust for X and\nthe pre-period outco
 
 cov_po = p2("partialling out", "right", "wrong", "coverage")
 plr_cov_text = "never contained" if cov_po == 0 else f"contained only {pct(cov_po)} of the time"
+plr_bias_po = p2("partialling out", "right", "wrong", "bias")
+cov_iv = p2("IV-type", "right", "wrong", "coverage")
 
 # ===================================================================== sim 3
 grid3 = np.array(s3["grid"])
@@ -183,7 +197,7 @@ eff_err["doubleml"] = np.array([plr_theta.get(d["store"], np.nan) for d in store
 lim3 = float(np.ceil(np.nanpercentile(np.abs(eff_err["none"]), 99) * 2) / 2)
 
 
-def rmse_by(err, mask):
+def rmse_by(err, mask):  # noqa: E302
     e = err[mask & np.isfinite(err)]
     return float(np.sqrt(np.mean(e ** 2)))
 
@@ -201,6 +215,7 @@ ylim6 = tuple(np.percentile(np.r_[est_eff["none"], est_eff["partial"]], [1, 99])
 shrink_chart = shrink_panel(st_n, est_eff["none"], est_eff["partial"], ORANGE, BLUE, ylim6,
                             ylabel=f"Effect of dose {f2(a_lo)} → {f2(a_hi)}")
 BINS6 = [(0, 25, "<25"), (25, 60, "25–60"), (60, 150, "60–150"), (150, 10**6, "150+")]
+dml_big = rmse_by(eff_err["doubleml"], st_n >= 150)
 size_cats = [f"{lab} customers\n{int(((st_n >= lo) & (st_n < hi)).sum())} stores" for lo, hi, lab in BINS6]
 size_bars = grouped_bars(size_cats, [
     (lab, col, [rmse_by(eff_err[key], (st_n >= lo) & (st_n < hi)) for lo, hi, _ in BINS6])
@@ -283,15 +298,15 @@ select {{ font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px so
 
 <main>
 
-<p>Not all treatments are binary: marketing spend, price, discount depth, app notifications, customer service response times. Rather than asking "did this treatment work?", we often need to know "what's the right amount?". When the treatment is continuous and chosen rather than randomised, most analysts reach for double machine learning, usually the partially linear model in <a href="https://docs.doubleml.org/" target="_blank" rel="noopener">DoubleML</a>. It is a good default for a binary treatment, but for a continuous one it has three limitations that matter in practice:</p>
+<p>Not all treatments are binary: marketing spend, price, discount depth, app notifications, customer service response times. Rather than asking "did this treatment work?", we often need to know "what's the right amount?". When the treatment is continuous and chosen rather than randomised, a common choice is double machine learning (<a href="https://arxiv.org/abs/1608.00060" target="_blank" rel="noopener">Chernozhukov et al. 2018</a>), usually the partially linear model in <a href="https://docs.doubleml.org/" target="_blank" rel="noopener">DoubleML</a> (<a href="https://jmlr.org/papers/v23/21-0862.html" target="_blank" rel="noopener">Bach et al. 2022</a>). For a binary treatment, DoubleML's interactive model is doubly robust; for a continuous treatment, the partially linear model is the usual choice, and it has three limitations that matter in practice:</p>
 
 <ul class="pts">
   <li><strong>It returns one number.</strong> The effect is assumed linear, so a rise-then-fall or a saturating curve comes back as a single slope.</li>
   <li><strong>Its default score isn't doubly robust.</strong> With a wrong treatment model the estimate is biased, however good the outcome model is.</li>
-  <li><strong>It gives one answer per population.</strong> If you need a curve for each of 200 groups, looping over them gives noisy curves for the small ones.</li>
+  <li><strong>It gives one answer per population.</strong> If you need a curve for each of 200 groups, looping over them gives noisy slopes for the small ones.</li>
 </ul>
 
-<p>This article runs one simulation per limitation and shows an estimator that addresses all three: the doubly robust dose-response estimator of <a href="https://arxiv.org/abs/1507.00747" target="_blank" rel="noopener">Kennedy et al. (2017)</a>, with a second stage that partially pools curves across a hierarchy.</p>
+<p>This article runs one simulation per limitation and shows an estimator that addresses all three: the doubly robust dose-response estimator of <a href="https://arxiv.org/abs/1507.00747" target="_blank" rel="noopener">Kennedy et al. (2017)</a>, with a second stage that partially pools curves across a hierarchy. It then looks at three practical questions: which machine learning models to use, how existing packages compare, and what to do when a confounder is unmeasured.</p>
 
 <!-- 1 -->
 <section id="plr">
@@ -301,16 +316,18 @@ select {{ font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px so
 
   <div class="eqn">Y = θD + g(X) + ε</div>
 
-  <p>where D is the treatment, X the confounders and g(X) the effect of the confounders on the outcome. DoubleML estimates θ with two machine learning models: an <strong>outcome model</strong>, which predicts Y from X, and a <strong>treatment model</strong>, which predicts D from X. It then regresses what's left of Y on what's left of D (this is called partialling out). Models like these are called nuisance models: we need them, but don't care about them for their own sake. Cross-fitting (each row's predictions come from models trained on other rows) and an orthogonal score (an estimating equation that is insensitive to small errors in the nuisance models) stop the regularisation in these models from biasing θ, which is what makes its confidence interval valid. The catch is the θD term: it assumes the effect is linear, so every extra unit of treatment has the same effect wherever you start.</p>
+  <p>where D is the treatment, X the confounders and g(X) the effect of the confounders on the outcome. DoubleML estimates θ with two machine learning models: an <strong>outcome model</strong>, which predicts Y from X, and a <strong>treatment model</strong>, which predicts D from X. It then regresses what's left of Y on what's left of D (this is called partialling out).</p>
+
+  <p>Models like these are called nuisance models: we need them, but don't care about them for their own sake. Cross-fitting (each row's predictions come from models trained on other rows) and an orthogonal score (an estimating equation that is insensitive to small errors in the nuisance models) stop the regularisation in these models from biasing θ, which is what makes its confidence interval valid. The catch is the θD term: it assumes the effect is linear, so every extra unit of treatment has the same effect wherever you start.</p>
 
   <p>If the true effect is a curve, you still get a single slope back: roughly the curve's average slope across the doses in your data.</p>
 
   <p>The alternative is to estimate the whole curve: for every dose a, the average outcome if everyone received dose a. It takes three steps:</p>
 
   <div class="flow">
-    <div class="step"><div class="n">Step 1</div><div class="t">Cross-fit two nuisance models</div><p>An outcome model μ(x, a) = E[Y | X, A], and a generalised propensity score (GPS) π(a | x): the density of the dose given X.</p></div>
+    <div class="step"><div class="n">Step 1</div><div class="t">Cross-fit two nuisance models</div><p>An outcome model μ(x, a) = E[Y | X, A]; unlike DoubleML's outcome model, this one includes the dose as an input. And a generalised propensity score (GPS; <a href="https://doi.org/10.1002/0470090456.ch7" target="_blank" rel="noopener">Hirano and Imbens 2004</a>) π(a | x): the density of the dose given X.</p></div>
     <div class="step"><div class="n">Step 2</div><div class="t">Build a pseudo-outcome</div><p>Combine them into one number per row, ξ, whose average at each dose is the causal curve.</p></div>
-    <div class="step"><div class="n">Step 3</div><div class="t">Smooth, with pooling</div><p>Regress ξ on the dose with penalised splines, sharing strength across a hierarchy of groups.</p></div>
+    <div class="step"><div class="n">Step 3</div><div class="t">Smooth, with pooling</div><p>Regress ξ on the dose with penalised splines (<a href="https://doi.org/10.1214/ss/1038425655" target="_blank" rel="noopener">Eilers and Marx 1996</a>), sharing strength across a hierarchy of groups.</p></div>
   </div>
 
   <p>Step 2 is where the robustness comes from. It starts with a regression estimate, the outcome model's prediction at dose a averaged over everyone, which on its own is an S-learner. It then adds a correction: the residuals of units that actually got a dose near a, weighted by how unusual that dose was for them so that they represent everyone. If the outcome model is right, the correction is just noise; if it's wrong, the correction removes the error, provided the model of who gets which dose is right. One of the two has to be right, not both: that's double robustness.<sup>1</sup></p>
@@ -322,10 +339,9 @@ select {{ font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px so
 
 <!-- 2 -->
 <section id="shape">
-  <p class="s-label">Simulation 1</p>
   <h2>2. Nonlinear effects</h2>
 
-  <p>Nonlinear dose-response curves are common. Two shapes come up again and again:</p>
+  <p>Two nonlinear shapes are common:</p>
 
   <ul class="pts">
     <li><strong>Saturating.</strong> Diminishing returns. The first £10k of ad spend in a region buys more conversions than the next £10k, and the 20th app notification this month adds almost nothing.</li>
@@ -355,12 +371,11 @@ select {{ font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px so
 
 <!-- 3 -->
 <section id="robust">
-  <p class="s-label">Simulation 2</p>
   <h2>3. Robustness to a wrong nuisance model</h2>
 
-  <p>Both nuisance models are approximations, and with a continuous dose the model of who gets which dose is especially easy to get wrong. Doses are often set by unwritten business rules (pricing tiers, budgets split by last year's revenue, a cap on notifications), and some segments see a narrow range of doses while others see a wide one. The outcome model can be wrong too. So the useful question isn't whether your models are right, but what happens when one of them is wrong.</p>
+  <p>Both nuisance models are approximations, and with a continuous dose the model of who gets which dose is especially easy to get wrong: it has to describe the whole spread of doses each unit might get, not just the average one. Doses are often set by unwritten business rules (pricing tiers, budgets split by last year's revenue, a cap on notifications), and some segments see a narrow range of doses while others see a wide one. The outcome model can be wrong too. So the test is what happens when one of them is wrong.</p>
 
-  <p>DoubleML's partially linear model has two scores. The default, partialling out, only protects against a wrong outcome model. If the treatment model is wrong, θ is biased however good the outcome model is (<a href="https://neurips.cc/virtual/2025/124095" target="_blank" rel="noopener">Valentin et al. 2025</a>). The IV-type score is doubly robust, but only for the single slope θ. What we want is a doubly robust <em>curve</em>, which is what the pseudo-outcome from section 1 provides.</p>
+  <p>DoubleML's partially linear model has two scores (estimating equations). The default, partialling out, only protects against a wrong outcome model: if the treatment model is wrong, θ is biased however good the outcome model is (<a href="https://neurips.cc/virtual/2025/124095" target="_blank" rel="noopener">Valentin et al. 2025</a>). The alternative IV-type score is doubly robust, but only for the single slope θ. We checked both on this section's data, rerun with a straight-line effect so that θ is well defined. With a wrong treatment model, the default score's θ moved only a little ({plr_bias_po:+.2f} against a true value of 1), but its 95% interval {plr_cov_text} the truth. The IV-type score stayed on target, with {pct(cov_iv)} coverage. What we want is a doubly robust <em>curve</em>, which is what the pseudo-outcome from section 1 provides.</p>
 
   <p>The simulation:</p>
   <ul class="pts">
@@ -379,22 +394,15 @@ select {{ font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px so
     <p class="fig-cap">Each panel shows each estimator's error: its average estimated curve over {N_REPS2} simulated datasets, minus the true curve. The dashed line at zero is the truth, so the closer to it the better. The blue band shows where 90% of the individual DR curves fall. Curves are centred.</p>
   </div>
 
-  <ul class="pts">
-    <li><strong>Outcome model wrong:</strong> the S-learner misses the curve, while DR stays much closer, because the weighted residuals correct most of the error.</li>
-    <li><strong>Dose model wrong:</strong> DR stays close.</li>
-    <li><strong>Both wrong:</strong> DR misses too. It needs at least one model right.</li>
-  </ul>
-
-  <p>DR's remaining error sits at the ends of the dose range, where the wrong outcome model is most wrong and the fewest units are available to correct it.</p>
+  <p>With the outcome model wrong, the S-learner misses the curve, while DR stays much closer, because the weighted residuals correct most of the error. With the dose model wrong, DR stays close. With both wrong, DR misses too: it needs at least one model right. DR's remaining error sits at the ends of the dose range, where the wrong outcome model is most wrong and the fewest units are available to correct it.</p>
 
 </section>
 
 <!-- 4 -->
 <section id="confounders">
-  <p class="s-label">Simulation 2, continued</p>
   <h2>4. Choosing the nuisance models</h2>
 
-  <p>Real data rarely has a handful of confounders. A customer table has dozens of features: tenure, spend history, products held, past contacts. Most of them nudge both the dose a customer gets and their outcome a little. You don't know which matter or how, so both nuisance models end up as flexible, regularised machine learning models. Which learner you pick turns out to matter more than you might expect.</p>
+  <p>Real data rarely has a handful of confounders. A customer table has dozens of features: tenure, spend history, products held, past contacts. Most of them nudge both the dose a customer gets and their outcome a little. You don't know which matter or how, so both nuisance models end up as flexible, regularised machine learning models. The choice of learner changed the answer a lot.</p>
 
   <p>The simulation:</p>
   <ul class="pts">
@@ -422,12 +430,11 @@ select {{ font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px so
     <li><strong>Stacked:</strong> all three recover the curve. The spline regression captures the smooth relationships that trees can only approximate with steps.</li>
   </ul>
 
-  <p>That doesn't make the stack better everywhere: section 6 tests it on harder data, where trees have the edge.</p>
+  <p>In practice: density weights, the default, work well with the stack; if you use boosting alone, switch to balancing weights. That doesn't make the stack better everywhere: section 6 tests it on harder data, where trees have the edge.</p>
 </section>
 
 <!-- 5 -->
 <section id="many">
-  <p class="s-label">Simulation 3</p>
   <h2>5. Many curves: borrow strength across the hierarchy</h2>
 
   <p>The decision is rarely one curve for the whole business. Pricing teams set discounts by category, marketing teams set budgets by country and channel, CRM teams set cadence by segment. The groups are nested (stores in regions, products in categories, campaigns in channels), and their sizes follow a long tail: a few big ones with plenty of data and many small ones with very little.</p>
@@ -436,7 +443,7 @@ select {{ font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px so
   <ul class="pts">
     <li><strong>Complete pooling:</strong> one curve for everyone. Stable, but it ignores real differences between groups.</li>
     <li><strong>No pooling:</strong> a separate curve per group. A store with 12 customers is treated as if it knew as much as one with 500. Looping DoubleML over stores does the same, and it also refits the nuisance models on each store's handful of rows.</li>
-    <li><strong>Partial pooling:</strong> in between. Each store's curve is the global curve, plus a regional deviation, plus a store deviation:</li>
+    <li><strong>Partial pooling:</strong> in between (<a href="https://doi.org/10.1017/CBO9780511790942" target="_blank" rel="noopener">Gelman and Hill 2007</a>). Each store's curve is the global curve, plus a regional deviation, plus a store deviation:</li>
   </ul>
 
   <div class="eqn">θ<sub>store</sub>(a) = B(a)′ ( β<sub>global</sub> + b<sub>region</sub> + b<sub>store</sub> )</div>
@@ -456,14 +463,10 @@ select {{ font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px so
       <div class="fig-title">Error in each store's dose effect, by number of customers in the store</div>
     </div>
     <div class="fig-body">{LEG8}{size_bars}</div>
-    <p class="fig-cap">Root mean squared error of each store's estimated change in outcome from moving the dose from {f2(a_lo)} to {f2(a_hi)}, grouped by the number of customers in the store.{" DoubleML failed to fit in " + str(n_fail) + " stores, which are left out." if n_fail else ""}</p>
+    <p class="fig-cap">One simulated dataset. Root mean squared error of each store's estimated change in outcome between the 25th and 75th percentiles of the dose, grouped by the number of customers in the store.{" DoubleML failed to fit in " + str(n_fail) + " stores, which are left out." if n_fail else ""}</p>
   </div>
 
-  <ul class="pts">
-    <li><strong>No pooling and DoubleML per store:</strong> the error grows as stores get smaller, worst for DoubleML.</li>
-    <li><strong>Complete pooling:</strong> the error stays high even in big stores, because every store gets the same curve.</li>
-    <li><strong>Partial pooling:</strong> the lowest error in small stores, because it pulls them toward their region. In big stores it matches no pooling, because the data overrules the shrinkage.</li>
-  </ul>
+  <p>Without pooling, the error grows as stores get smaller. DoubleML per store is worst in all but the biggest stores. Even there, with 150 or more customers, its error stays around {dml_big:.1f}, because a straight line can't follow the curve; the extra error in small stores comes from refitting the nuisance models on a few dozen rows. Complete pooling's error stays high even in big stores, because every store gets the same curve. Partial pooling has the lowest error in small stores, because it pulls them toward their region; in big stores it matches no pooling, because the data overrules the shrinkage.</p>
 
 </section>
 
@@ -476,30 +479,31 @@ select {{ font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px so
   <p>Two packages already estimate a single doubly robust curve with the pseudo-outcome from section 1:</p>
   <ul class="pts">
     <li><strong><a href="https://github.com/ehkennedy/npcausal" target="_blank" rel="noopener">npcausal</a> (R):</strong> Kennedy's own implementation. It fits the nuisance models with SuperLearner, an ensemble of smooth regressions and random forests, and chooses how much to smooth the curve from the data.</li>
-    <li><strong><a href="https://github.com/ronikobrosly/causal-curve" target="_blank" rel="noopener">causal-curve</a> (Python):</strong> follows the same steps, with gradient boosting and a fixed amount of smoothing.</li>
+    <li><strong><a href="https://github.com/ronikobrosly/causal-curve" target="_blank" rel="noopener">causal-curve</a> (Python):</strong> follows the same steps (its estimator is called TMLE), with gradient boosting and a fixed amount of smoothing.</li>
   </ul>
 
-  <p>Neither cross-fits the nuisance models, and neither handles groups. Everything in this article is built on <a href="{REPO}" target="_blank" rel="noopener">drcurves</a>, an open-source Python package that does both.</p>
+  <p>Neither cross-fits the nuisance models, and neither handles groups. I wrote <a href="{REPO}" target="_blank" rel="noopener">drcurves</a>, the open-source Python package used for every result in this article, partly because I wanted both. Since I'm comparing my own package, read the comparison below with that in mind.</p>
 
-  <p>We ran all three, each with its default settings, on three settings:</p>
+  <p>We ran all three on three settings, ten simulated datasets each:</p>
   <ul class="pts">
-    <li>The data from section 2 (5 confounders) and section 3 (50 confounders).</li>
-    <li>Harder data that favours trees: thresholds, interactions between confounders and heavy-tailed noise.</li>
-    <li>Ten simulated datasets per setting.</li>
+    <li>The data from section 2 (5 confounders) and section 3 (50 confounders). These are the simulations used to choose drcurves' default learner in section 4, so they favour it.</li>
+    <li>Harder data that favours trees, added as a check: thresholds, interactions between confounders and heavy-tailed noise.</li>
   </ul>
+
+  <p>Each package used its defaults, with two exceptions for npcausal: we gave it a range of bandwidths to choose from, and with 50 confounders we dropped the pairwise-interaction learner from its library, which didn't fit in memory.</p>
 
   <div class="fig">
     <div class="fig-hdr">
       <div class="fig-title">Error in the estimated curve, by package</div>
     </div>
     <div class="fig-body">{LEG9}{cmp_bars}</div>
-    <p class="fig-cap">Root mean squared error between the estimated and the true curve, averaged over the simulated datasets in each setting. Curves are centred.</p>
+    <p class="fig-cap">Root mean squared error between the estimated and the true curve, averaged over the simulated datasets in each setting. Curves are centred.{f" On the harder data, npcausal failed on {N_HARD_FAIL} of the {N_HARD} datasets, so all three are compared on the other {N_HARD_MATCH}." if N_HARD_FAIL else ""}</p>
   </div>
 
   <ul class="pts">
-    <li><strong>Smooth data (5 and 50 confounders):</strong> drcurves is the most accurate, and its lead grows with more confounders. npcausal is close with 5 confounders but falls behind with 50.</li>
+    <li><strong>Smooth data (5 and 50 confounders):</strong> drcurves is the most accurate, and its lead grows with more confounders. npcausal is close with 5 confounders but falls behind with 50, likely because of its library of learners rather than the cross-fitting (section 4 showed how much the learner matters).</li>
     <li><strong>Harder data:</strong> drcurves is still ahead of npcausal. Within drcurves, boosting alone with balancing weights was more accurate still ({hardall['boosted, balancing']:.2f} vs {hardall['stacked, density']:.2f}), but boosting alone with density weights failed badly ({hardall['boosted, density']:.1f}). No learner wins everywhere; the stack is rarely far from the best.</li>
-    <li><strong>causal-curve</strong> trails throughout, and its intervals are around 25 times wider than the others', so they always cover the truth but tell you little.</li>
+    <li><strong>causal-curve</strong> trails throughout, and its intervals are {CC_RATIO} times wider than the others', so they always cover the truth but tell you little.</li>
   </ul>
 
   <p>These are our simulations, run with each package's default settings; different data could reorder them.</p>
@@ -507,10 +511,9 @@ select {{ font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px so
 
 <!-- 7 -->
 <section id="did">
-  <p class="s-label">Simulation 4</p>
-  <h2>7. Your assumptions matter more than your estimator</h2>
+  <h2>7. When confounders are unmeasured: difference-in-differences</h2>
 
-  <p>Everything so far assumes you've measured the confounders. Often you haven't. A customer's underlying complexity, a team's culture, a store's location: stable traits that push both the dose and the outcome, and never appear in the data. No estimator fixes that on its own. A different assumption can.</p>
+  <p>Everything so far assumes you've measured the confounders. Often you haven't. A customer's underlying complexity, a team's culture, a store manager's skill: stable traits that push both the dose and the outcome, and never appear in the data. No estimator fixes that, but with pre-period data a different assumption can.</p>
 
   <p>If you observe the outcome before the dose changed, and the hidden trait is stable over time, difference-in-differences removes it: fit the same method on the <em>change</em> in outcome rather than its level. To compare doses, rather than just treated against untreated, this needs a stronger form of parallel trends: units on different doses would have followed the same path had their doses been the same (<a href="https://arxiv.org/abs/2107.02637" target="_blank" rel="noopener">Callaway, Goodman-Bacon and Sant'Anna 2024</a>).</p>
 
@@ -529,13 +532,9 @@ select {{ font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px so
     <p class="fig-cap">Root mean squared error between the estimated and the true curve, averaged over {N_DID} simulated datasets. Curves are centred.</p>
   </div>
 
-  <ul class="pts">
-    <li><strong>Adjust for X:</strong> far off, because the hidden trait is still confounding the curve.</li>
-    <li><strong>Adjust for the pre-period outcome too:</strong> better, because the past outcome partly stands in for the trait, but still biased.</li>
-    <li><strong>DiD:</strong> recovers the curve, because the trait cancels when you take the change.</li>
-  </ul>
+  <p>Adjusting for X alone leaves the trait confounding the curve. Adding the pre-period outcome helps, because it partly stands in for the trait, but the curve is still biased. Fitting on the change recovers it, because the trait cancels.</p>
 
-  <p>The ranking flips if the dose responds to past outcomes rather than to a stable trait: then adjusting for the pre-period outcome is right and DiD is biased. You can't tell which from the data alone. A placebo helps: fit the curve on the change between two pre-periods, where the dose can't have had an effect yet. A clearly non-flat curve warns that parallel trends doesn't hold. Judge it by its size relative to the effect you care about; its bands are narrow enough to flag deviations too small to matter.</p>
+  <p>The ranking flips if the dose responds to past outcomes rather than to a stable trait: then adjusting for the pre-period outcome is right and DiD is biased. You can't tell which from the data alone. A placebo helps: fit the curve on the change between two pre-periods, where the dose can't have had an effect yet. A clearly non-flat curve warns that parallel trends doesn't hold. Judge it by its size relative to the effect you care about, not by whether its band includes zero: even when parallel trends held in our simulation, about {pct(1 - did["placebo"][1])} of the placebo curve fell outside its 95% band.</p>
 </section>
 
 <!-- FAQ -->
@@ -543,7 +542,7 @@ select {{ font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px so
   <h2>Frequently asked questions</h2>
 
   <details class="faq"><summary>Can I trust the intervals?</summary>
-    <p>Mostly, but treat them as slightly optimistic. With the stacked default, the 95% bands contained the true curve 75-93% of the time across our simulations: a little short, because capping the weights trades a small bias for a lot of stability. When the nuisance models are off they are too narrow, because a band doesn't account for bias. Check on your own data: keep your real confounders and doses, simulate an outcome with a known curve, rerun the whole pipeline 20 to 30 times, and count how often the band contains it. This is a plasmode simulation (<a href="https://doi.org/10.1016/j.csda.2013.10.018" target="_blank" rel="noopener">Franklin et al. 2014</a>), and if the bands fall short it tells you how much to widen them.</p>
+    <p>Treat them as optimistic. With the stacked default, the 95% bands contained the true curve 75-93% of the time across our simulations. Capping the most extreme weights, which trades a small bias for a lot of stability, is one likely reason. When the nuisance models are off the bands are too narrow, because a band doesn't account for bias. Check on your own data: keep your real confounders and doses, simulate an outcome with a known curve, rerun the whole pipeline 20 to 30 times, and count how often the band contains it. This is a plasmode simulation (<a href="https://doi.org/10.1016/j.csda.2013.10.018" target="_blank" rel="noopener">Franklin et al. 2014</a>), and if the bands fall short it tells you how much to widen them.</p>
   </details>
 
   <details class="faq"><summary>When shouldn't I use this?</summary>
@@ -565,7 +564,7 @@ select {{ font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px so
   </details>
 
   <details class="faq"><summary>Is there a kernel version of double machine learning for this?</summary>
-    <p>Yes. <a href="https://arxiv.org/abs/2004.03036" target="_blank" rel="noopener">Colangelo and Lee</a> estimate the curve one dose at a time with a kernel-localised doubly robust score, and <a href="https://arxiv.org/abs/2104.10334" target="_blank" rel="noopener">Klosin (2021)</a> does it without estimating the density. Both are good options for a single population curve with careful inference. The pseudo-outcome approach here was chosen because the second stage can be any regression, which is what makes the hierarchical pooling simple.</p>
+    <p>Yes. <a href="https://arxiv.org/abs/2004.03036" target="_blank" rel="noopener">Colangelo and Lee (2020)</a> estimate the curve one dose at a time with a kernel-localised doubly robust score, and <a href="https://arxiv.org/abs/2104.10334" target="_blank" rel="noopener">Klosin (2021)</a> does it without estimating the density. Both are good options for a single population curve with careful inference. The pseudo-outcome approach here was chosen because the second stage can be any regression, which is what makes the hierarchical pooling simple.</p>
   </details>
 
   <details class="faq"><summary>Could I do the pooling in a Bayesian model instead?</summary>
@@ -578,13 +577,13 @@ select {{ font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px so
 <section id="together">
   <h2>Conclusion</h2>
 
-  <p>The partially linear model is a good tool used for the wrong question. With a continuous treatment, the question is about a curve:</p>
+  <p>With a continuous treatment, the partially linear model answers a narrower question than you usually need. The question is about a curve:</p>
 
   <ul class="pts">
     <li><strong>Shape.</strong> A single slope can't describe a curve. On an inverted U it can come out near zero, as if the dose didn't matter. Estimate the whole curve instead.</li>
-    <li><strong>Robustness.</strong> The DR pseudo-outcome survives either nuisance model being wrong, for the whole curve, not just for θ.</li>
+    <li><strong>Robustness.</strong> With one nuisance model wrong, the DR curve removed most of the error the S-learner made, though some remained at the ends of the dose range.</li>
     <li><strong>Learners.</strong> Boosting alone flattens the curve and breaks density weights. Stack a smooth learner with boosting; no single learner wins everywhere.</li>
-    <li><strong>Many curves.</strong> Partial pooling gives every group a curve, shrinks the small ones toward their parent, and lets the big ones speak for themselves.</li>
+    <li><strong>Many curves.</strong> Partial pooling gives every group a curve, shrinks the small ones toward their parent, and leaves big ones close to their own data.</li>
     <li><strong>Assumptions.</strong> If a stable trait you can't measure drives both dose and outcome, fit the same method on the change in outcome (DiD), and run a placebo on the pre-periods.</li>
   </ul>
 
@@ -603,9 +602,7 @@ select {{ font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px so
     <li>Gelman, A. and Hill, J. (2007). <em>Data Analysis Using Regression and Multilevel/Hierarchical Models</em>. Cambridge University Press.</li>
     <li>Hirano, K. and Imbens, G. (2004). The propensity score with continuous treatments. In <em>Applied Bayesian Modeling and Causal Inference from Incomplete-Data Perspectives</em>, Wiley.</li>
     <li>Kennedy, E., Ma, Z., McHugh, M. and Small, D. (2017). <a href="https://arxiv.org/abs/1507.00747" target="_blank" rel="noopener">Non-parametric methods for doubly robust estimation of continuous treatment effects</a>. <em>Journal of the Royal Statistical Society: Series B</em>, 79(4), 1229–1245.</li>
-    <li>Kim, Y.-J. and Gu, C. (2004). Smoothing spline Gaussian regression: more scalable computation via efficient approximation. <em>Journal of the Royal Statistical Society: Series B</em>, 66(2), 337–356.</li>
     <li>Klosin, S. (2021). <a href="https://arxiv.org/abs/2104.10334" target="_blank" rel="noopener">Automatic double machine learning for continuous treatment effects</a>. arXiv:2104.10334.</li>
-    <li>Marra, G. and Wood, S. (2012). <a href="https://doi.org/10.1111/j.1467-9469.2011.00760.x" target="_blank" rel="noopener">Coverage properties of confidence intervals for generalized additive model components</a>. <em>Scandinavian Journal of Statistics</em>, 39(1), 53–74.</li>
     <li>Tübbicke, S. (2022). <a href="https://doi.org/10.1515/jem-2021-0002" target="_blank" rel="noopener">Entropy balancing for continuous treatments</a>. <em>Journal of Econometric Methods</em>, 11(1), 71–89.</li>
     <li>Valentin, S., Detommaso, G., Li, Y., Opper, M. and Brueckner, M. (2025). <a href="https://neurips.cc/virtual/2025/124095" target="_blank" rel="noopener">On double robustness in double machine learning</a>. NeurIPS 2025 Workshop CauScien.</li>
   </ul>

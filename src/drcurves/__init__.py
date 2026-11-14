@@ -4,6 +4,7 @@ import warnings
 import numpy as np
 import pandas as pd
 
+from .models import default_model
 from .nuisance import GPS, DiscreteGPS, Nuisances, cross_fit_nuisances, pseudo_outcomes
 from .pooled import HierarchicalDoseResponse
 from .bootstrap import bootstrap_curves
@@ -13,7 +14,7 @@ from .check import coverage_check
 
 __all__ = ["GPS", "DiscreteGPS", "Nuisances", "cross_fit_nuisances", "pseudo_outcomes",
            "HierarchicalDoseResponse", "fit_dose_response", "bootstrap_curves", "prepare_X",
-           "RieszWeights", "StackedWeights", "BalancingWeights", "coverage_check"]
+           "RieszWeights", "StackedWeights", "BalancingWeights", "coverage_check", "default_model"]
 
 
 def prepare_X(X, groups=None, add_group_codes=True):
@@ -65,7 +66,7 @@ def _check_dose(A, max_levels):
     return discrete
 
 
-def fit_dose_response(X, A, Y, outcome_model, gps=None, groups=None, pooling="partial",
+def fit_dose_response(X, A, Y, outcome_model=None, gps=None, groups=None, pooling="partial",
                       n_folds=5, n_basis=10, cluster=None, fold_groups=None,
                       cov_type="bayes", max_weight_quantile=0.99, add_group_codes=True,
                       max_levels=30, random_state=0):
@@ -76,6 +77,8 @@ def fit_dose_response(X, A, Y, outcome_model, gps=None, groups=None, pooling="pa
     groups   : None (one population curve); a DataFrame with one column (flat
                groups, each shrunk toward the global curve); or several columns
                top -> bottom (e.g. ["region", "store"]). Levels must be nested.
+    outcome_model : sklearn regressor for E[Y | X, A]. None uses default_model(), a
+               spline-ridge + boosting stack.
     gps      : the weight model. None picks DiscreteGPS when A has <= max_levels
                distinct values, otherwise GPS() (density-based weights, Kennedy
                et al. 2017), whose intervals had close to nominal coverage in
@@ -95,13 +98,19 @@ def fit_dose_response(X, A, Y, outcome_model, gps=None, groups=None, pooling="pa
         groups = groups.to_frame() if isinstance(groups, pd.Series) else pd.DataFrame(groups)
         groups = groups.reset_index(drop=True)
     discrete = _check_dose(A, max_levels)
+    Xn = prepare_X(X, groups, add_group_codes)
+    n_codes = groups.shape[1] if (groups is not None and add_group_codes) else 0
+    cat = list(range(Xn.shape[1] - n_codes, Xn.shape[1])) or None
+    if outcome_model is None:
+        # the outcome model sees [X, A]; A is appended last, so the code columns keep their indices
+        outcome_model = default_model(cat, random_state=random_state)
     if gps is None:
-        gps = DiscreteGPS(random_state=random_state) if discrete else GPS(random_state=random_state)
+        gps = (DiscreteGPS(random_state=random_state) if discrete
+               else GPS(categorical_features=cat, random_state=random_state))
     elif discrete and type(gps) is GPS:
         warnings.warn(f"A has only {len(np.unique(A))} distinct values; a continuous GPS is not "
                       "a valid density for it. Use DiscreteGPS (the default when gps=None).",
                       stacklevel=2)
-    Xn = prepare_X(X, groups, add_group_codes)
     A = np.asarray(A, float)
     leaf = None if groups is None else groups.astype(str).agg("\x1f".join, axis=1).to_numpy()
     nuis = cross_fit_nuisances(Xn, A, Y, outcome_model, gps, groups=leaf, n_folds=n_folds,

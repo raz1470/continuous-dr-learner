@@ -13,6 +13,7 @@ from dataclasses import dataclass
 
 import numpy as np
 from scipy.stats import gaussian_kde, norm
+from .models import default_model
 from sklearn.base import BaseEstimator, clone
 from sklearn.ensemble import HistGradientBoostingRegressor
 from sklearn.model_selection import KFold, cross_val_predict
@@ -27,32 +28,35 @@ class GPS(BaseEstimator):
 
     Parameters
     ----------
-    mean_model : sklearn regressor for E[A | X]. Default: HistGradientBoosting.
+    mean_model : sklearn regressor for E[A | X]. Default: drcurves.models.default_model,
+        a spline-ridge + boosting stack (boosting alone gave unstable weights in our simulations).
     scale_model : sklearn regressor for E[|A - m(X)| | X]. Ignored if
         ``heteroscedastic=False``. (Absolute residuals are far less noisy than
         log squared residuals, which produce near-zero scales and exploding weights.)
     heteroscedastic : model s(X) (True) or use a constant scale (False).
+    categorical_features : column indices treated as categorical by the default models.
     residual : "kde" (non-parametric shape for e) or "gaussian".
     """
 
     def __init__(self, mean_model=None, scale_model=None, heteroscedastic=True,
-                 residual="kde", random_state=0):
+                 residual="kde", categorical_features=None, random_state=0):
         self.mean_model = mean_model
         self.scale_model = scale_model
         self.heteroscedastic = heteroscedastic
         self.residual = residual
+        self.categorical_features = categorical_features
         self.random_state = random_state
 
     def fit(self, X, A):
         A = np.asarray(A, float)
-        mm = self.mean_model if self.mean_model is not None else HistGradientBoostingRegressor(
-            max_iter=200, learning_rate=0.05, random_state=self.random_state)
+        mm = self.mean_model if self.mean_model is not None else default_model(
+            self.categorical_features, random_state=self.random_state)
         # out-of-fold residuals so the scale/shape are not shrunk by overfitting
         r = A - cross_val_predict(clone(mm), X, A, cv=KFold(3, shuffle=True, random_state=self.random_state))
         self.mean_model_ = clone(mm).fit(X, A)
         if self.heteroscedastic:
-            sm = self.scale_model if self.scale_model is not None else HistGradientBoostingRegressor(
-                max_iter=100, learning_rate=0.05, min_samples_leaf=100, random_state=self.random_state)
+            sm = self.scale_model if self.scale_model is not None else default_model(
+                self.categorical_features, max_iter=100, random_state=self.random_state)
             self.scale_model_ = clone(sm).fit(X, np.abs(r))
             self.scale_floor_ = 0.25 * np.mean(np.abs(r))
             s = self._raw_scale(X)

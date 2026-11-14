@@ -1,0 +1,8 @@
+method,n,rmse,cover,width
+"boosted, balancing",10,0.184,0.432,0.289
+"boosted, S-learner",10,0.203,0.032,0.028
+"stacked, density",10,0.228,0.888,1.626
+npcausal (R),9,0.301,0.128,0.22
+"stacked, balancing",10,0.363,0.19,0.286
+"stacked, S-learner",10,0.453,0.028,0.053
+"boosted, density",10,2.806,0.972,32.658

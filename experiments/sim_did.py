@@ -6,6 +6,7 @@ Compared (all DR, stacked nuisance models, density weights):
   levels   - outcome = Y_post            (biased: the hidden trait doesn't cancel)
   did      - outcome = Y_post - Y_pre    (DiD: the trait cancels)
   placebo  - outcome = Y_pre - Y_prepre  (should be flat)
+  lagged   - outcome = Y_post, adjusting for Y_pre as a confounder (lagged-outcome regression)
 Usage: python experiments/sim_did.py REPS [BUDGET]   (resumable)"""
 import json, sys, time, warnings
 from pathlib import Path
@@ -42,6 +43,14 @@ if __name__ == "__main__":
     for rep in range(REPS):
         fp = OUT / f"did_{rep:03d}.json"
         if fp.exists():
+            old = json.loads(fp.read_text())
+            if "lagged" not in old:   # added later: adjust for the pre-period outcome instead of differencing
+                X, A, Y = sim_did(seed=1000 + rep)
+                g = np.array(old["grid"]); t = np.array(old["truth"])
+                est, se = fit(np.column_stack([X, Y[0]]), A, Y[1], rep, g)
+                old["lagged"] = dict(est=est.tolist(), se=se.tolist(), rmse=float(np.sqrt(np.mean((est - t) ** 2))),
+                                     cover=float(np.mean(np.abs(est - t) <= 1.96 * se)))
+                fp.write_text(json.dumps(old)); print(rep, "lagged", round(old["lagged"]["rmse"], 3), flush=True)
             continue
         if time.time() - T0 > BUDGET:
             print("budget reached", flush=True); sys.exit(0)

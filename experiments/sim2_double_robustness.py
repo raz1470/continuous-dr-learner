@@ -18,6 +18,7 @@ IV-type score with right/wrong nuisance models.
 Usage: python experiments/sim2_double_robustness.py REPS   (resumable cache)
 """
 import json
+import time
 import sys
 import warnings
 from pathlib import Path
@@ -31,7 +32,7 @@ from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import FunctionTransformer
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-from drcurves import GPS, BalancingWeights, HierarchicalDoseResponse, cross_fit_nuisances, pseudo_outcomes  # noqa: E402
+from drcurves import GPS, BalancingWeights, HierarchicalDoseResponse, cross_fit_nuisances, default_model, pseudo_outcomes  # noqa: E402
 from drcurves.nuisance import Nuisances  # noqa: E402
 from drcurves.simulate import sim_high_dim  # noqa: E402
 
@@ -87,9 +88,27 @@ def curve(A, nuis, Y, kind):
     return centred(est).tolist()
 
 
+BUDGET = float(sys.argv[2]) if len(sys.argv) > 2 else 1e9
+_T0 = time.time()
+
+
+def part_d(X, A, Y, rep):
+    """In practice, with the package default (spline-ridge + boosting stack) for every model."""
+    ns = cross_fit_nuisances(X, A, Y, default_model(), GPS(random_state=rep), random_state=rep)
+    nbal = cross_fit_nuisances(X, A, Y, None, BalancingWeights(), random_state=rep)
+    return {"D|slearner": curve(A, ns, Y, "plugin"), "D|dr_density": curve(A, ns, Y, "dr"),
+            "D|dr_balancing": curve(A, Nuisances(mu=ns.mu, m=ns.m, pi=nbal.pi, varpi=nbal.varpi), Y, "dr")}
+
+
 for rep in range(REPS):
     path = CACHE / f"sim2hd_{rep:03d}.json"
     if path.exists():
+        old = json.loads(path.read_text())
+        if "D|dr_density" not in old:
+            if time.time() - _T0 > BUDGET:
+                print("budget reached", flush=True); sys.exit(0)
+            X, A, Y, _ = sim_high_dim(n=N, p=P, seed=100 + rep, effect=CURVE)
+            old.update(part_d(X, A, Y, rep)); path.write_text(json.dumps(old)); print(f"rep {rep} part D", flush=True)
         continue
     X, A, Y, _ = sim_high_dim(n=N, p=P, seed=100 + rep, effect=CURVE)
     out = {}
@@ -101,11 +120,16 @@ for rep in range(REPS):
         for kind in ["plugin", "ipw", "dr"]:
             out[f"A|{om}|{dm}|{kind}"] = curve(A, nn, Y, kind)
     # Part B
-    nb = cross_fit_nuisances(X, A, Y, hgb(), GPS(random_state=rep), random_state=rep)
+    # Part B: boosting alone for every model
+    gps_b = GPS(mean_model=HGB(max_iter=200, learning_rate=0.05, random_state=rep),
+                scale_model=HGB(max_iter=100, learning_rate=0.05, min_samples_leaf=100, random_state=rep),
+                random_state=rep)
+    nb = cross_fit_nuisances(X, A, Y, hgb(), gps_b, random_state=rep)
     nbal = cross_fit_nuisances(X, A, Y, None, BalancingWeights(), random_state=rep)
     out["B|slearner"] = curve(A, nb, Y, "plugin")
     out["B|dr_density"] = curve(A, nb, Y, "dr")
     out["B|dr_balancing"] = curve(A, Nuisances(mu=nb.mu, m=nb.m, pi=nbal.pi, varpi=nbal.varpi), Y, "dr")
+    out.update(part_d(X, A, Y, rep))
     # Part C
     Xl, Al, Yl, _ = sim_high_dim(n=N, p=P, seed=500 + rep, effect="linear")
     data = DoubleMLData.from_arrays(Xl, Yl, Al)

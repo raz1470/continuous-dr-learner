@@ -30,7 +30,7 @@ for ax, curve in zip(axes, ["inverted_u", "saturating"]):
     plr.fit()
     theta, theta_se = plr.coef[0], plr.se[0]
 
-    model = fit_dose_response(X, A, Y, outcome_model=hgb())
+    model = fit_dose_response(X, A, Y)  # package default: spline-ridge + boosting stack
     grid = np.linspace(*np.quantile(A, [0.05, 0.95]), 100)
     est, se = model.curve(grid)
 

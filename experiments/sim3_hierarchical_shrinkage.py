@@ -19,7 +19,7 @@ from sklearn.ensemble import HistGradientBoostingRegressor as HGB
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from _style import C, INK, INK2, plt  # noqa: E402
-from drcurves import GPS, HierarchicalDoseResponse, cross_fit_nuisances, pseudo_outcomes  # noqa: E402
+from drcurves import GPS, HierarchicalDoseResponse, cross_fit_nuisances, default_model, pseudo_outcomes  # noqa: E402
 from drcurves.simulate import sim_hierarchical  # noqa: E402
 
 warnings.filterwarnings("ignore")
@@ -41,11 +41,9 @@ rows, examples, plr_rows = [], None, []
 for rep in range(REPS):
     df, truth, f0 = sim_hierarchical(seed=rep)
     X, A, Y = features(df), df.A.to_numpy(), df.Y.to_numpy()
-    gps = GPS(mean_model=hgb_cat(2), scale_model=HGB(max_iter=100, learning_rate=0.05,
-              min_samples_leaf=100, categorical_features=[0, 1]))
-    nuis = cross_fit_nuisances(X, A, Y, HGB(max_iter=300, learning_rate=0.05, random_state=0,
-                                            categorical_features=[0, 1]),
-                               gps, groups=df.store.to_numpy(), random_state=rep)
+    # package default: spline-ridge + boosting stack, region/store codes as categorical
+    gps = GPS(categorical_features=[0, 1], random_state=rep)
+    nuis = cross_fit_nuisances(X, A, Y, default_model([0, 1]), gps, groups=df.store.to_numpy(), random_state=rep)
     xi = pseudo_outcomes(nuis, Y, "dr")
     grid = np.linspace(*np.quantile(A, [0.05, 0.95]), 40)
     groups = df[["region", "store"]]

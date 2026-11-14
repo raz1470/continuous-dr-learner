@@ -294,3 +294,39 @@ def test_plot_returns_axes():
     m = HierarchicalDoseResponse().fit(a, y, g)
     ax = m.plot(paths=[None, ("n",), ("s",)], truth=np.sin, band="simultaneous")
     assert len(ax.lines) >= 4
+
+
+def test_unseen_group_band_is_wider_than_parent():
+    rng = np.random.default_rng(14)
+    n = 3000
+    reg = rng.choice(["n", "s"], n)
+    sto = np.char.add(reg, rng.integers(0, 20, n).astype(str))
+    a = rng.normal(size=n)
+    dev = {s: rng.normal(scale=0.4) for s in np.unique(sto)}
+    y = np.sin(a) + np.array([dev[s] for s in sto]) * a + rng.normal(size=n)
+    m = HierarchicalDoseResponse().fit(a, y, pd.DataFrame({"r": reg, "s": sto}))
+    g = np.linspace(-1.5, 1.5, 20)
+    e_r, s_r = m.curve(g, ("n",), centre=True)
+    e_new, s_new = m.curve(g, ("n", "brand_new"), centre=True)
+    assert np.allclose(e_r, e_new) and np.all(s_new >= s_r) and s_new.mean() > 1.3 * s_r.mean()
+    _, s_old = m.curve(g, ("n", "brand_new"), centre=True, predictive=False)
+    assert np.allclose(s_old, s_r)
+
+
+def test_nuisance_variance_term_and_past_outcome_sim():
+    from drcurves.simulate import sim_did
+    rng = np.random.default_rng(15)
+    n = 1200
+    X = rng.normal(size=(n, 2))
+    A = 0.5 * X[:, 0] + rng.normal(size=n)
+    Y = np.sin(A) + X[:, 1] * A + rng.normal(size=n)       # confounder interacts with the dose
+    m = fit_dose_response(X, A, Y, outcome_model=make_pipeline(PolynomialFeatures(2), LinearRegression()),
+                          gps=GPS(mean_model=LinearRegression(), heteroscedastic=False))
+    assert m.nuisances_.q.shape[0] == n and m._nmeat is not None
+    g = np.linspace(-1, 1, 10)
+    _, s_with = m.curve(g)
+    m._nmeat, m._cov_cache = None, {}
+    _, s_without = m.curve(g)
+    assert np.all(s_with >= s_without - 1e-12)
+    Xp, Ap, Yp, _ = sim_did(n=300, seed=1, mechanism="past_outcome")
+    assert set(Yp) == {-1, 0, 1} and len(Ap) == 300

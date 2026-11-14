@@ -187,6 +187,8 @@ class Nuisances:
     pi: np.ndarray          # pi_hat(A_i | X_i)
     varpi: np.ndarray       # varpi_hat_g(A_i)   (marginal density, within group g_i)
     m: np.ndarray           # m_hat_g(A_i) = mean_x mu_hat(x, A_i) over x in group g_i
+    a_grid: np.ndarray = None   # evaluation grid for the nuisance-variance term
+    q: np.ndarray = None        # (n, J): (mu_hat(X_i, t) - m_hat_g(t)) * varpi_hat_g(t) on a_grid; optional
 
 
 def _feat(X, a):
@@ -213,7 +215,7 @@ def _predict_chunked(fn, Xr, ar, chunk=200_000):
 
 def cross_fit_nuisances(X, A, Y, outcome_model, gps, groups=None, n_folds=5,
                         n_grid=60, n_ref=1000, max_ref_total=60_000, max_levels=30,
-                        fold_groups=None, n_jobs=None, random_state=0) -> Nuisances:
+                        fold_groups=None, n_jobs=None, nuisance_var=False, random_state=0) -> Nuisances:
     """Cross-fit outcome model and GPS; return everything the pseudo-outcomes need.
 
     groups      : finest grouping level (length n). Integrals over P(x) are taken
@@ -222,6 +224,8 @@ def cross_fit_nuisances(X, A, Y, outcome_model, gps, groups=None, n_folds=5,
                   should also be (encoded) in X so the nuisance models can use it.
     fold_groups : ids kept together in cross-fitting (e.g. customer id).
     n_jobs      : folds fitted in parallel threads (None = 1, -1 = all cores).
+    nuisance_var: also return q, each row's outcome model on the dose grid (centred and weighted),
+                  used for the variance term that accounts for estimating m(a) (Kennedy et al. 2017).
     max_levels  : if A has at most this many distinct values it is treated as
                   discrete: integrals are evaluated at those values exactly.
     n_ref / max_ref_total : rows per group (and in total) used for the integrals.
@@ -268,6 +272,10 @@ def cross_fit_nuisances(X, A, Y, outcome_model, gps, groups=None, n_folds=5,
             om = clone(outcome_model).fit(_feat(X[tr], A[tr]), Y[tr])
             out["mu"] = om.predict(_feat(X[te], A[te]))
             out["m"] = _predict_chunked(lambda x, a: om.predict(_feat(x, a)), Xr, ar)
+            if nuisance_var:
+                Xg = np.repeat(X[te], J, axis=0)
+                out["mu_grid"] = _predict_chunked(lambda x, a: om.predict(_feat(x, a)), Xg,
+                                                  np.tile(a_grid, len(te))).reshape(len(te), J)
         if gps is None or in_sample:
             pass                 # in-sample weights (balancing) are computed once below
         elif is_ratio:
@@ -283,7 +291,10 @@ def cross_fit_nuisances(X, A, Y, outcome_model, gps, groups=None, n_folds=5,
     # folds run in threads: the heavy lifting (boosting, linear algebra) releases the GIL
     results = Parallel(n_jobs=n_jobs, prefer="threads")(delayed(fit_fold)(k) for k in range(n_folds))
     ratio_w = np.full(n, np.nan)
+    mu_grid = np.full((n, J), np.nan) if nuisance_var else None
     for r in results:
+        if "mu_grid" in r:
+            mu_grid[r["te"]] = r["mu_grid"]
         te = r["te"]
         if "mu" in r:
             mu[te] = r["mu"]
@@ -308,7 +319,12 @@ def cross_fit_nuisances(X, A, Y, outcome_model, gps, groups=None, n_folds=5,
         varpi = gps.fit_weights(X, A, None if groups is None else g, Y=Y)
     elif gps is not None and getattr(gps, "is_ratio", False):
         varpi = ratio_w          # pseudo-outcomes use varpi / pi = learned weight
-    return Nuisances(mu=mu, pi=pi, varpi=varpi, m=m)
+    q = None
+    if mu_grid is not None:
+        wt = w_tab if not (gps is not None and (getattr(gps, "in_sample", False) or getattr(gps, "is_ratio", False))) \
+            else np.ones((G, J)) / max(np.ptp(a_grid), 1e-12)          # no density: use a flat varpi
+        q = (mu_grid - m_tab[g]) * wt[g]
+    return Nuisances(mu=mu, pi=pi, varpi=varpi, m=m, a_grid=a_grid, q=q)
 
 
 def pseudo_outcomes(nuis: Nuisances, Y, kind="dr", max_weight_quantile=0.99):

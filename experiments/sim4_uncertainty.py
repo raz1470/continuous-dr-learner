@@ -23,7 +23,7 @@ import pandas as pd
 from sklearn.ensemble import HistGradientBoostingRegressor as HGB
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-from drcurves import GPS, HierarchicalDoseResponse, cross_fit_nuisances, pseudo_outcomes  # noqa: E402
+from drcurves import GPS, HierarchicalDoseResponse, cross_fit_nuisances, default_model, pseudo_outcomes  # noqa: E402
 from drcurves.simulate import CURVES, sim_hierarchical, sim_nonlinear  # noqa: E402
 
 warnings.filterwarnings("ignore")
@@ -57,8 +57,8 @@ def score(model, grid, truth, path, a_lo, a_hi, f_true):
 
 def rep_single(rep):
     X, A, Y, f = sim_nonlinear(n=4000, curve="inverted_u_centred", seed=2000 + rep)
-    hgb = HGB(max_iter=300, learning_rate=0.05, random_state=0)
-    nuis = cross_fit_nuisances(X, A, Y, hgb, GPS(), random_state=rep)
+    # package default: spline-ridge + boosting stack for every nuisance model
+    nuis = cross_fit_nuisances(X, A, Y, default_model(), GPS(random_state=rep), random_state=rep)
     xi = pseudo_outcomes(nuis, Y)
     m = HierarchicalDoseResponse().fit(A, xi)
     grid = np.linspace(*np.quantile(A, [0.05, 0.95]), 50)
@@ -74,11 +74,8 @@ def rep_stores(rep):
     X = np.column_stack([pd.Categorical(df.region).codes, pd.Categorical(df.store).codes,
                          df[["x0", "x1", "x2"]].to_numpy()])
     A, Y = df.A.to_numpy(), df.Y.to_numpy()
-    cat = dict(categorical_features=[0, 1])
-    gps = GPS(mean_model=HGB(max_iter=150, learning_rate=0.08, **cat),
-              scale_model=HGB(max_iter=80, learning_rate=0.05, min_samples_leaf=100, **cat))
-    nuis = cross_fit_nuisances(X, A, Y, HGB(max_iter=150, learning_rate=0.08, random_state=0, **cat),
-                               gps, groups=df.store.to_numpy(), random_state=rep)
+    gps = GPS(categorical_features=[0, 1], random_state=rep)      # package default models
+    nuis = cross_fit_nuisances(X, A, Y, default_model([0, 1]), gps, groups=df.store.to_numpy(), random_state=rep)
     xi = pseudo_outcomes(nuis, Y)
     m = HierarchicalDoseResponse(pooling="partial").fit(A, xi, df[["region", "store"]])
     grid = np.linspace(*np.quantile(A, [0.05, 0.95]), 40)

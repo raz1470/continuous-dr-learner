@@ -119,13 +119,29 @@ def sim_high_dim(n=3000, p=50, seed=0, weak_share=0.6, return_oracle=False, effe
 
 
 # --------------------------------------------------------------------------- DiD
-def sim_did(n=3000, seed=0, curve="inverted_u_centred"):
-    """Panel with a continuous dose. Units carry an unobserved, time-invariant trait that raises both
-    their dose and their outcome level; observed X drives the dose and the outcome trend.
-    Returns X, A, {t: Y_t for t in (-1, 0, 1)}, f, where the dose acts only at t = 1."""
+def sim_did(n=3000, seed=0, curve="inverted_u_centred", mechanism="trait"):
+    """Panel with a continuous dose; the dose acts only at t = 1.
+
+    mechanism="trait": units carry an unobserved, time-invariant trait that raises both their dose
+        and their outcome level; observed X drives the dose and the outcome trend. DiD is right.
+    mechanism="past_outcome": outcomes are persistent (Y_t = 0.6 Y_{t-1} + ...), and the dose is set
+        in response to the last pre-period outcome. Adjusting for the lagged outcome is right;
+        DiD is biased (regression to the mean).
+    Returns X, A, {t: Y_t for t in (-1, 0, 1)}, f."""
     rng = np.random.default_rng(seed)
     f = CURVES[curve]
     X = rng.normal(size=(n, 5))
+    if mechanism == "past_outcome":
+        g = 1.0 * X[:, 0] + 0.5 * X[:, 2] ** 2
+        Y = {-2: g + rng.normal(size=n)}
+        for t in (-1, 0):
+            Y[t] = 0.6 * Y[t - 1] + g + 0.8 * rng.normal(size=n)
+        A = 0.4 * (Y[0] - Y[0].mean()) / Y[0].std() + 0.4 * X[:, 0] + 0.3 * np.sin(2 * X[:, 1]) + 0.6 * rng.normal(size=n)
+        Y[1] = 0.6 * Y[0] + g + f(A) + 0.8 * rng.normal(size=n)
+        del Y[-2]
+        return X, A, Y, f
+    if mechanism != "trait":
+        raise ValueError('mechanism must be "trait" or "past_outcome"')
     alpha = rng.normal(size=n)                                          # unobserved
     A = 0.5 * alpha + 0.4 * X[:, 0] + 0.3 * np.sin(2 * X[:, 1]) + 0.6 * rng.normal(size=n)
     g = 1.0 * X[:, 0] + 0.5 * X[:, 2] ** 2                              # level

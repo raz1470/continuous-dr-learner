@@ -1,8 +1,5 @@
 # Backlog: before publishing `drcurves` on PyPI
 
-## Before anything else
-- [ ] Confirm with Monzo in writing that publishing this is fine (IP clause).
-
 ## Done (phase 1)
 - [x] Public API frozen in `drcurves.__all__`; Riesz/stacked weights moved to experimental `drcurves.riesz`.
 - [x] Default fit ~2x faster (2-fold stacking, early-stopped boosting, 2-fold GPS residuals); `n_jobs`.
@@ -13,21 +10,22 @@
 - [x] DiD option: `fit_dose_response(..., y_pre=...)` fits on the change in outcome.
 - [x] Lagged-outcome option: `design="lagged"`.
 - [x] `placebo_check`, judged by size relative to the main effect.
-- [ ] Add the integral term to the pointwise variance (Kennedy et al. 2017, as in npcausal's
+- [x] Add the integral term to the pointwise variance (Kennedy et al. 2017, as in npcausal's
       `ctseff`) so the intervals account for estimating m(a).
 - [x] Use the stacked default inside `coverage_check` and `bootstrap_curves`.
 - [x] Discrete doses (stacked classifier, rare levels merged, defensive mixture): with n=2,500 and rare top/bottom levels, `DiscreteGPS` weights blew the curve up at
       the edges (error 5.6 vs 0.2 at n=4,000). Stabilise (stacked classifier, pooling rare levels, or
       warning) before release.
 - [x] `.plot()` on the fitted model.
-- [ ] Predictive band for an unseen group: add the between-group variance, so a new store's band is wider than its region's.
+- [x] Predictive band for an unseen group: add the between-group variance, so a new store's band is wider than its region's.
 
 ## Evidence
-- [ ] Harder simulation: interactions, thresholds, heavy-tailed noise, weaker overlap. Compare the
+- [x] Harder simulation: interactions, thresholds, heavy-tailed noise, weaker overlap. Compare the
       stacked default, boosting alone and npcausal, so the README claims hold beyond smooth data.
-- [ ] DiD simulation with all three: levels, DiD, lagged outcome (stable trait vs selection on
+- [x] DiD simulation with all three: levels, DiD, lagged outcome (stable trait vs selection on
       past outcomes).
-- [ ] Rerun `sim4_uncertainty` and `sim6_intervals` with the stacked default; update README tables.
+- [x] Rerun `sim4_uncertainty` and `sim6_intervals` with the stacked default (docs/research.md).
+- [ ] Bands under-cover a little (77-92%) from capping bias; an adaptive cap or a bias correction could close it.
 
 ## Packaging
 - [ ] CI (GitHub Actions): tests on Python 3.10–3.13, latest sklearn/pandas.

@@ -92,8 +92,16 @@ pc["relative"]      # largest placebo deviation / range of the real curve; small
 
 Comparing doses under DiD needs *strong* parallel trends: units on different doses would have
 followed the same path had their doses been equal (Callaway, Goodman-Bacon & Sant'Anna 2024).
-When you don't know whether the stable-trait or past-outcome story is right, the two designs
-bracket the truth.
+
+In simulation (`experiments/sim_did.py`), each design wins in its own world, and the placebo tells
+them apart (RMSE of the curve; placebo = largest deviation of the pre-period curve from flat):
+
+| | Adjust for X | Lagged outcome | DiD | Placebo |
+|---|---|---|---|---|
+| A stable hidden trait drives the dose | 1.06 | 0.30 | **0.04** | 0.03 (flat) |
+| The dose responds to past outcomes | 0.24 | **0.05** | 0.16 | 0.16 (not flat) |
+
+A clearly non-flat placebo is a reason to prefer the lagged design, or to report both.
 
 ## Options worth knowing
 
@@ -102,7 +110,10 @@ bracket the truth.
 - **Weights.** For a continuous dose the default is `GPS()`, density-based weights. `BalancingWeights()`
   (entropy balancing; population curve only) is an alternative. A dose with ≤ 30 distinct values
   (tiers, counts) uses `DiscreteGPS` automatically.
-- **Uncertainty.** `band(simultaneous=False)` for pointwise bands; `draws()` for any other summary;
+- **Uncertainty.** `band(simultaneous=False)` for pointwise bands; `draws()` for any other summary.
+  A group with no data (a new store) gets its parent's curve with a wider, predictive band that adds
+  the spread between groups (`predictive=True`, the default). The bands include the variance from
+  estimating m(a) (`nuisance_var=True`, Kennedy et al. 2017);
   `bootstrap_curves()` refits the whole pipeline and is the only option that includes
   nuisance-model uncertainty (slow). `coverage_check()` runs a plasmode simulation on your own data
   to check how often the bands cover a known curve, and returns calibrated critical values.
@@ -161,8 +172,9 @@ pseudo-outcome's mean, given the dose, is the true curve if either nuisance mode
   trends for DiD. Double robustness protects against a wrong model, not a missing variable.
 - Report curves over the observed dose range. Weights are capped at the 99th percentile by default
   (`max_weight_quantile`), trading a little bias for a lot of variance.
-- Analytic bands treat the nuisance models as fixed. They were close to nominal with good models
-  and too narrow with poor ones; check with `coverage_check` before relying on them.
+- The 95% bands are slightly optimistic: in our simulations they contained the true curve 77-92% of
+  the time (stores 81%), mostly because capping the weights leaves a small bias. Check with
+  `coverage_check` before relying on them; details in [`docs/research.md`](docs/research.md).
 - Experimental, not supported: `drcurves.riesz` (learned Riesz weights).
 
 ## Reproduce the article
@@ -174,12 +186,14 @@ python experiments/sim2_double_robustness.py 30
 python experiments/sim3_hierarchical_shrinkage.py 5
 python experiments/compare_causal_curve.py 10; python experiments/compare_npcausal.py 10   # npcausal needs R
 python experiments/compare_stacked.py 10; python experiments/compare_hard.py 10
-python experiments/sim_did.py 5
+python experiments/sim_did.py 10; python experiments/sim_did.py 8 --past-outcome
+python experiments/sim4_uncertainty.py single 42; python experiments/sim4_uncertainty.py stores 15
+python experiments/sim6_intervals.py 15
 python tools/build_article.py      # -> article/index.html
 pytest                             # add -m slow for the experimental tests
 ```
 
-Older coverage studies and the full uncertainty notes are in [`docs/research.md`](docs/research.md);
+Interval coverage studies are in [`docs/research.md`](docs/research.md);
 the API is summarised in [`docs/api.md`](docs/api.md); open work is in [`BACKLOG.md`](BACKLOG.md).
 
 ## References

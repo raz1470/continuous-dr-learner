@@ -3,7 +3,6 @@
 Population dose-response curve on the Sim 5 data (4 strong + many weak
 confounders), boosted outcome model, three weight models:
   density   : GPS() (Kennedy et al. density weights)
-  learned   : RieszWeights() (automatic debiasing)
   balancing : BalancingWeights() (entropy balancing for a continuous dose)
 Scored on the shape (centred curve): bias, RMSE, coverage of 95% pointwise and
 simultaneous bands (Bayesian covariance), and whether the reported s.e. matches
@@ -23,8 +22,7 @@ from sklearn.ensemble import HistGradientBoostingRegressor as HGB
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from drcurves import (GPS, BalancingWeights, HierarchicalDoseResponse,  # noqa: E402
-                      cross_fit_nuisances, pseudo_outcomes)
-from drcurves.riesz import RieszWeights  # noqa: E402
+                      cross_fit_nuisances, default_model, pseudo_outcomes)
 from drcurves.nuisance import Nuisances  # noqa: E402
 from drcurves.simulate import sim_high_dim  # noqa: E402
 
@@ -33,8 +31,7 @@ ROOT = Path(__file__).resolve().parents[1]
 CACHE = ROOT / "results" / "cache"
 CACHE.mkdir(parents=True, exist_ok=True)
 PS = [5, 50]
-METHODS = {"density": lambda r: GPS(random_state=r),
-           "learned": lambda r: RieszWeights(random_state=r),
+METHODS = {"density": lambda r: GPS(random_state=r),          # package defaults (stacked models)
            "balancing": lambda r: BalancingWeights()}
 REPS = int(sys.argv[1]) if len(sys.argv) > 1 else 30
 BUDGET = float(sys.argv[2]) if len(sys.argv) > 2 else 1e9
@@ -57,8 +54,7 @@ for rep in range(REPS):
         X, A, Y, f = sim_high_dim(n=3000, p=p, seed=700 + rep)
         g = grids[p]
         truth = f(g) - f(g).mean()
-        nu = cross_fit_nuisances(X, A, Y, HGB(max_iter=300, learning_rate=0.05, random_state=0),
-                                 None, random_state=rep)
+        nu = cross_fit_nuisances(X, A, Y, default_model(), None, random_state=rep)
         out = {}
         for name, mk in METHODS.items():
             nw = cross_fit_nuisances(X, A, Y, None, mk(rep), random_state=rep)

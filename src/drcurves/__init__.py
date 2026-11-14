@@ -83,7 +83,8 @@ def _code_columns(Xn, groups, add_group_codes):
 def fit_dose_response(X, A, Y, outcome_model=None, gps=None, groups=None, pooling="partial",
                       n_folds=5, n_basis=10, cluster=None, fold_groups=None,
                       cov_type="bayes", max_weight_quantile=0.99, add_group_codes=True,
-                      max_levels=30, y_pre=None, design=None, n_jobs=None, random_state=0):
+                      max_levels=30, y_pre=None, design=None, nuisance_var=True, n_jobs=None,
+                      random_state=0):
     """One call: cross-fitted nuisances -> DR pseudo-outcomes -> pooled splines.
 
     X        : covariates (array or DataFrame; categorical columns are coded).
@@ -101,6 +102,9 @@ def fit_dose_response(X, A, Y, outcome_model=None, gps=None, groups=None, poolin
     fold_groups : ids kept together in cross-fitting (e.g. customer id).
     cov_type : "bayes" (default), "robust_bayes" or "sandwich".
     n_jobs   : parallel jobs for the default models (None = 1, -1 = all cores).
+    nuisance_var : add the variance from estimating m(a), the outcome model averaged over X
+               (Kennedy et al. 2017), to the "bayes" and "robust_bayes" bands. Costs one extra
+               prediction per row and dose-grid point.
     y_pre    : the outcome before the dose (same units). With it, choose `design`:
                "did" (default): fit on the change Y - y_pre. Removes stable unobserved traits,
                    but comparing doses needs strong parallel trends: units on different doses
@@ -148,10 +152,10 @@ def fit_dose_response(X, A, Y, outcome_model=None, gps=None, groups=None, poolin
     leaf = None if groups is None else groups.astype(str).agg("\x1f".join, axis=1).to_numpy()
     nuis = cross_fit_nuisances(Xn, A, Y, outcome_model, gps, groups=leaf, n_folds=n_folds,
                                max_levels=max_levels, fold_groups=fold_groups,
-                               n_jobs=n_jobs, random_state=random_state)
+                               n_jobs=n_jobs, nuisance_var=nuisance_var, random_state=random_state)
     xi = pseudo_outcomes(nuis, Y, kind="dr", max_weight_quantile=max_weight_quantile)
     model = HierarchicalDoseResponse(n_basis=n_basis, pooling=pooling, cov_type=cov_type).fit(
-        A, xi, groups, cluster=cluster)
+        A, xi, groups, cluster=cluster, nuisance_term=(nuis.a_grid, nuis.q))
     model.nuisances_ = nuis
     model.pseudo_outcomes_ = xi
     model._diag_data = (A, leaf, max_weight_quantile)

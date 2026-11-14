@@ -14,11 +14,11 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src")); sys.path.insert(0, str(ROOT / "experiments"))
 from drcurves import GPS, HierarchicalDoseResponse, cross_fit_nuisances, pseudo_outcomes  # noqa
-from drcurves.simulate import CURVES  # noqa
+from drcurves.simulate import CURVES, sim_did as sim_did_pkg  # noqa
 from compare_stacked import stack  # noqa
 warnings.filterwarnings("ignore")
 REPS = int(sys.argv[1]) if len(sys.argv) > 1 else 5
-BUDGET = float(sys.argv[2]) if len(sys.argv) > 2 else 1e9
+BUDGET = float(sys.argv[2]) if len(sys.argv) > 2 and not sys.argv[2].startswith("--") else 1e9
 OUT = ROOT / "results" / "cache"; T0 = time.time()
 f = CURVES["inverted_u_centred"]
 
@@ -39,7 +39,30 @@ def fit(X, A, y, rep, g):
     return HierarchicalDoseResponse().fit(A, pseudo_outcomes(nu, y, "dr")).curve(g, centre=True)
 
 
+def run_past_outcome(rep):
+    """Second mechanism: the dose responds to the last pre-period outcome (lagged adjustment is right)."""
+    fp = OUT / f"didpo_{rep:03d}.json"
+    if fp.exists():
+        return
+    X, A, Y, _ = sim_did_pkg(n=3000, seed=1500 + rep, mechanism="past_outcome")
+    g = np.linspace(*np.quantile(A, [0.05, 0.95]), 40); t = f(g) - f(g).mean()
+    out = {}
+    for name, Xu, y, truth in [("levels", X, Y[1], t), ("lagged", np.column_stack([X, Y[0]]), Y[1], t),
+                               ("did", X, Y[1] - Y[0], t), ("placebo", X, Y[0] - Y[-1], 0 * t)]:
+        est, se = fit(Xu, A, y, rep, g)
+        out[name] = dict(rmse=float(np.sqrt(np.mean((est - truth) ** 2))), cover=float(np.mean(np.abs(est - truth) <= 1.96 * se)),
+                         max_abs=float(np.max(np.abs(est))))
+    fp.write_text(json.dumps(out))
+    print(rep, "past_outcome", {k: round(v["rmse"], 3) for k, v in out.items()}, flush=True)
+
+
 if __name__ == "__main__":
+    if "--past-outcome" in sys.argv:
+        for rep in range(REPS):
+            if time.time() - T0 > BUDGET:
+                print("budget reached", flush=True); sys.exit(0)
+            run_past_outcome(rep)
+        sys.exit(0)
     for rep in range(REPS):
         fp = OUT / f"did_{rep:03d}.json"
         if fp.exists():

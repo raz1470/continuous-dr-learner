@@ -8,7 +8,7 @@ the supported public API; other modules (`drcurves.riesz`, `drcurves.simulate`) 
 ### `fit_dose_response`
 
 ```python
-fit_dose_response(X, A, Y, outcome_model=None, gps=None, groups=None, pooling='partial', n_folds=5, n_basis=10, cluster=None, fold_groups=None, cov_type='bayes', max_weight_quantile=0.99, add_group_codes=True, max_levels=30, y_pre=None, design=None, n_jobs=None, random_state=0)
+fit_dose_response(X, A, Y, outcome_model=None, gps=None, groups=None, pooling='partial', n_folds=5, n_basis=10, cluster=None, fold_groups=None, cov_type='bayes', max_weight_quantile=0.99, add_group_codes=True, max_levels=30, y_pre=None, design=None, nuisance_var=True, n_jobs=None, random_state=0)
 ```
 
 ```text
@@ -29,6 +29,9 @@ cluster  : cluster ids for the robust covariance types.
 fold_groups : ids kept together in cross-fitting (e.g. customer id).
 cov_type : "bayes" (default), "robust_bayes" or "sandwich".
 n_jobs   : parallel jobs for the default models (None = 1, -1 = all cores).
+nuisance_var : add the variance from estimating m(a), the outcome model averaged over X
+           (Kennedy et al. 2017), to the "bayes" and "robust_bayes" bands. Costs one extra
+           prediction per row and dose-grid point.
 y_pre    : the outcome before the dose (same units). With it, choose `design`:
            "did" (default): fit on the change Y - y_pre. Removes stable unobserved traits,
                but comparing doses needs strong parallel trends: units on different doses
@@ -95,7 +98,7 @@ Different paths, same dose: how two groups differ at that dose.
 #### `.curve`
 
 ```python
-curve(self, a_grid, path=None, centre=False, cov_type=None)
+curve(self, a_grid, path=None, centre=False, cov_type=None, predictive=True)
 ```
 
 ```text
@@ -105,23 +108,27 @@ path=None returns the global block. Under partial pooling that is a
 shrinkage-weighted "typical group" curve, not the population average
 E[Y(a)]; for the population curve fit with groups=None.
 Unknown levels fall back to their parent (a new store gets its region's
-curve). centre=True returns the shape (curve minus its mean over a_grid).
+curve). With predictive=True (default) the band for an unseen group also
+includes the spread between groups at that level, drawn from the fitted
+random-effects prior, so a new store's band is wider than its region's.
+centre=True returns the shape (curve minus its mean over a_grid).
 ```
 
 #### `.draws`
 
 ```python
-draws(self, a_grid, path=None, n_draws=4000, centre=False, cov_type=None, seed=0)
+draws(self, a_grid, path=None, n_draws=4000, centre=False, cov_type=None, seed=0, predictive=True)
 ```
 
 ```text
-Curves drawn from N(coef, cov): array (n_draws, len(a_grid)).
+Curves drawn from N(coef, cov): array (n_draws, len(a_grid)). For unseen groups,
+predictive=True adds the between-group spread (see curve).
 ```
 
 #### `.fit`
 
 ```python
-fit(self, a, y, groups=None, cluster=None, penalties=None)
+fit(self, a, y, groups=None, cluster=None, penalties=None, nuisance_term=None)
 ```
 
 ```text
@@ -133,6 +140,9 @@ cluster   : optional cluster ids for the robust ("sandwich" /
             "robust_bayes") covariance, e.g. customer id when customers
             repeat. Don't cluster at the level whose curves you report.
 penalties : optional (lam_smooth, [lam_level, ...]) to skip GCV tuning.
+nuisance_term : optional (a_grid, q) from cross_fit_nuisances(..., nuisance_var=True).
+            Adds the variance from estimating m(a) (Kennedy et al. 2017) to the
+            "bayes" and "robust_bayes" covariances.
 ```
 
 #### `.optimal_dose`
@@ -378,7 +388,7 @@ share_band_excludes_zero (for reference only).
 ### `cross_fit_nuisances`
 
 ```python
-cross_fit_nuisances(X, A, Y, outcome_model, gps, groups=None, n_folds=5, n_grid=60, n_ref=1000, max_ref_total=60000, max_levels=30, fold_groups=None, n_jobs=None, random_state=0) -> 'Nuisances'
+cross_fit_nuisances(X, A, Y, outcome_model, gps, groups=None, n_folds=5, n_grid=60, n_ref=1000, max_ref_total=60000, max_levels=30, fold_groups=None, n_jobs=None, nuisance_var=False, random_state=0) -> 'Nuisances'
 ```
 
 ```text
@@ -390,6 +400,8 @@ groups      : finest grouping level (length n). Integrals over P(x) are taken
               should also be (encoded) in X so the nuisance models can use it.
 fold_groups : ids kept together in cross-fitting (e.g. customer id).
 n_jobs      : folds fitted in parallel threads (None = 1, -1 = all cores).
+nuisance_var: also return q, each row's outcome model on the dose grid (centred and weighted),
+              used for the variance term that accounts for estimating m(a) (Kennedy et al. 2017).
 max_levels  : if A has at most this many distinct values it is treated as
               discrete: integrals are evaluated at those values exactly.
 n_ref / max_ref_total : rows per group (and in total) used for the integrals.
@@ -413,7 +425,7 @@ kind = "dr"      : (Y - mu) * varpi/pi + m      (Kennedy et al. 2017)
 ### `Nuisances`
 
 ```python
-Nuisances(mu: 'np.ndarray', pi: 'np.ndarray', varpi: 'np.ndarray', m: 'np.ndarray') -> None
+Nuisances(mu: 'np.ndarray', pi: 'np.ndarray', varpi: 'np.ndarray', m: 'np.ndarray', a_grid: 'np.ndarray' = None, q: 'np.ndarray' = None) -> None
 ```
 
 ```text

@@ -108,6 +108,19 @@ class HierarchicalDoseResponse:
             blocks.append(sp.csr_matrix((B[ok].ravel(), (rows, cols)), shape=(n, len(keys) * K)))
         return sp.hstack(blocks).tocsr()
 
+    def _design_rows(self, V, groups):
+        """Like _design, but with each row's basis values replaced by V (n x K)."""
+        n, K = V.shape
+        blocks = [sp.csr_matrix(V)]
+        for lvl, keys in enumerate(self.level_keys_):
+            col = self._path_codes(groups, lvl)
+            idx = np.array([keys.get(c, -1) for c in col])
+            ok = idx >= 0
+            rows = np.repeat(np.flatnonzero(ok), K)
+            cols = (idx[ok][:, None] * K + np.arange(K)).ravel()
+            blocks.append(sp.csr_matrix((V[ok].ravel(), (rows, cols)), shape=(n, len(keys) * K)))
+        return sp.hstack(blocks).tocsr()
+
     def _penalty(self, lam_s, lams):
         K = self.K_
         order = min(2, K - 1)
@@ -138,7 +151,7 @@ class HierarchicalDoseResponse:
         return gcv, beta, f, edf, P
 
     # ------------------------------------------------------------------- fit
-    def fit(self, a, y, groups=None, cluster=None, penalties=None):
+    def fit(self, a, y, groups=None, cluster=None, penalties=None, nuisance_term=None):
         """Fit the pooled curves.
 
         groups    : DataFrame (or Series) with one column per level, top -> bottom;
@@ -147,6 +160,9 @@ class HierarchicalDoseResponse:
                     "robust_bayes") covariance, e.g. customer id when customers
                     repeat. Don't cluster at the level whose curves you report.
         penalties : optional (lam_smooth, [lam_level, ...]) to skip GCV tuning.
+        nuisance_term : optional (a_grid, q) from cross_fit_nuisances(..., nuisance_var=True).
+                    Adds the variance from estimating m(a) (Kennedy et al. 2017) to the
+                    "bayes" and "robust_bayes" covariances.
         """
         a = np.asarray(a, float)
         y = np.asarray(y, float)
@@ -176,6 +192,8 @@ class HierarchicalDoseResponse:
                 for l in range(groups.shape[1])
             ]
         X = self._design(a, groups)
+        self.level_counts_ = [np.bincount([keys[c] for c in self._path_codes(groups, l)], minlength=len(keys))
+                              for l, keys in enumerate(self.level_keys_)]
         self.n_ = len(y)
         self.p_ = X.shape[1]
         self.XtX_ = (X.T @ X).tocsc()
@@ -217,6 +235,13 @@ class HierarchicalDoseResponse:
             G = U.shape[0]
             self._meat = (U.T @ U * (G / max(G - 1, 1))).tocsc()
         self.sigma2_ = float(r @ r / max(self.n_ - self.edf_, 1.0))
+        self._nmeat = None
+        if nuisance_term is not None and nuisance_term[1] is not None:
+            tg, q = np.asarray(nuisance_term[0], float), np.asarray(nuisance_term[1], float)
+            wq = np.gradient(tg)                                   # trapezoid-like weights on the grid
+            V = q @ (wq[:, None] * self._basis(tg))                # (n, K): integral of B(t)(mu - m)varpi
+            Vx = self._design_rows(V, groups)                      # expanded into each row's blocks
+            self._nmeat = (Vx.T @ Vx).tocsc()
         self._cov_cache = {}
         return self
 
@@ -237,6 +262,8 @@ class HierarchicalDoseResponse:
                 C = Z.T @ (self._meat @ Z) + self.sigma2_ * Z.T @ (self._P @ Z)
             else:
                 raise ValueError(f"unknown cov_type {ct!r}")
+            if self._nmeat is not None and ct in ("bayes", "robust_bayes"):
+                C = C + Z.T @ (self._nmeat @ Z)       # variance from estimating m(a)
             self._cov_cache[key] = (C + C.T) / 2
         return self._cov_cache[key]
 
@@ -255,11 +282,14 @@ class HierarchicalDoseResponse:
         offset = K
         if path is not None and not isinstance(path, (tuple, list)):
             path = (path,)
+        self._last_unseen = []
         for lvl, keys in enumerate(self.level_keys_):
             if path is not None and lvl < len(path):
                 key = SEP.join(map(str, path[: lvl + 1]))
                 if key in keys:
                     sel.append(offset + keys[key] * K + np.arange(K))
+                else:
+                    self._last_unseen.append(lvl)
             offset += len(keys) * K
         idx = np.concatenate(sel)
         M = np.hstack([B] * len(sel))
@@ -267,25 +297,62 @@ class HierarchicalDoseResponse:
             M = M - M.mean(0, keepdims=True)
         return M, idx
 
+    def _new_group_cov(self, a_grid, centre, unseen):
+        """Extra covariance (len(a_grid) x len(a_grid)) for groups with no data at some level.
+
+        A new group's deviation from its parent is unknown, so its band adds the spread of the
+        deviations between groups at that level. The spread is estimated from the fitted
+        deviations of the better-observed half of the groups (by row count), whose estimates
+        are shrunk least; the penalty-implied prior alone was far too narrow in our checks."""
+        if not unseen:
+            return 0.0
+        K = self.K_
+        B = self._basis(np.atleast_1d(np.asarray(a_grid, float)))
+        if centre:
+            B = B - B.mean(0, keepdims=True)
+        C = 0.0
+        offset = K
+        for lvl, keys in enumerate(self.level_keys_):
+            if lvl in unseen:
+                b = self.coef_[offset: offset + len(keys) * K].reshape(len(keys), K)
+                n = self.level_counts_[lvl]
+                big = n >= np.median(n)
+                if big.sum() >= 3:
+                    C = C + B @ np.cov(b[big], rowvar=False) @ B.T
+            offset += len(keys) * K
+        return C
+
     # --------------------------------------------------------------- predict
-    def curve(self, a_grid, path=None, centre=False, cov_type=None):
+    def curve(self, a_grid, path=None, centre=False, cov_type=None, predictive=True):
         """Curve and pointwise s.e. for a group path, e.g. ("north", "store_17").
 
         path=None returns the global block. Under partial pooling that is a
         shrinkage-weighted "typical group" curve, not the population average
         E[Y(a)]; for the population curve fit with groups=None.
         Unknown levels fall back to their parent (a new store gets its region's
-        curve). centre=True returns the shape (curve minus its mean over a_grid).
+        curve). With predictive=True (default) the band for an unseen group also
+        includes the spread between groups at that level, drawn from the fitted
+        random-effects prior, so a new store's band is wider than its region's.
+        centre=True returns the shape (curve minus its mean over a_grid).
         """
         M, idx = self._rows(a_grid, path, centre)
         est = M @ self.coef_[idx]
-        se = np.sqrt(np.maximum(np.einsum("ij,jk,ik->i", M, self._cov(idx, cov_type), M), 0))
-        return est, se
+        var = np.einsum("ij,jk,ik->i", M, self._cov(idx, cov_type), M)
+        extra = self._new_group_cov(a_grid, centre, self._last_unseen) if predictive else 0.0
+        if np.ndim(extra):
+            var = var + np.diag(extra)
+            if not centre:
+                warnings.warn("A new group's overall level is left almost free by the model, so its "
+                              "uncentred band is very wide; use centre=True to compare shapes.", stacklevel=2)
+        return est, np.sqrt(np.maximum(var, 0))
 
-    def draws(self, a_grid, path=None, n_draws=4000, centre=False, cov_type=None, seed=0):
-        """Curves drawn from N(coef, cov): array (n_draws, len(a_grid))."""
+    def draws(self, a_grid, path=None, n_draws=4000, centre=False, cov_type=None, seed=0, predictive=True):
+        """Curves drawn from N(coef, cov): array (n_draws, len(a_grid)). For unseen groups,
+        predictive=True adds the between-group spread (see curve)."""
         M, idx = self._rows(a_grid, path, centre)
         C = M @ self._cov(idx, cov_type) @ M.T
+        if predictive:
+            C = C + self._new_group_cov(a_grid, centre, self._last_unseen)
         w, V = np.linalg.eigh((C + C.T) / 2)
         Lc = V * np.sqrt(np.maximum(w, 0))
         z = np.random.default_rng(seed).standard_normal((n_draws, len(w)))

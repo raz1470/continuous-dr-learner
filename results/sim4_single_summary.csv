@@ -1,4 +1,4 @@
 cov_type,pointwise,simultaneous,contrast,optimum,band_width,opt_width
-bayes,0.911,0.81,0.952,1.0,0.732,0.727
-robust_bayes,0.925,0.833,0.905,1.0,0.614,0.53
-sandwich,0.903,0.762,0.905,1.0,0.579,0.465
+bayes,0.772,0.476,0.738,1.0,0.161,0.185
+robust_bayes,0.77,0.452,0.738,1.0,0.155,0.172
+sandwich,0.744,0.405,0.714,0.952,0.146,0.153

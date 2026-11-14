@@ -3,6 +3,12 @@
 ## Before anything else
 - [ ] Confirm with Monzo in writing that publishing this is fine (IP clause).
 
+## Done (phase 1)
+- [x] Public API frozen in `drcurves.__all__`; Riesz/stacked weights moved to experimental `drcurves.riesz`.
+- [x] Default fit ~2x faster (2-fold stacking, early-stopped boosting, 2-fold GPS residuals); `n_jobs`.
+- [x] Input checks (lengths, finite/constant dose, missing group labels, tiny groups, poor overlap); NaN in X handled.
+- [x] Fast test suite (~40 s; slow experimental test behind `-m slow`) with an end-to-end recovery test of the defaults.
+
 ## Features
 - [ ] DiD option: `fit_dose_response(..., y_pre=...)` fits on the change in outcome; document that
       comparing across doses needs strong parallel trends.
@@ -13,8 +19,11 @@
       is far too sensitive.
 - [ ] Add the integral term to the pointwise variance (Kennedy et al. 2017, as in npcausal's
       `ctseff`) so the intervals account for estimating m(a).
-- [ ] Use the stacked default inside `coverage_check`, `bootstrap_curves` and the Riesz features
-      (some still build their own boosted models).
+- [x] Use the stacked default inside `coverage_check` and `bootstrap_curves`.
+- [ ] Discrete doses: with n=2,500 and rare top/bottom levels, `DiscreteGPS` weights blew the curve up at
+      the edges (error 5.6 vs 0.2 at n=4,000). Stabilise (stacked classifier, pooling rare levels, or
+      warning) before release.
+- [ ] `.plot()` on the fitted model.
 
 ## Evidence
 - [ ] Harder simulation: interactions, thresholds, heavy-tailed noise, weaker overlap. Compare the

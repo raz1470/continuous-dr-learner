@@ -27,7 +27,6 @@ import time
 import numpy as np
 import pandas as pd
 from sklearn.base import clone
-from sklearn.ensemble import HistGradientBoostingRegressor
 
 from .nuisance import GPS, Nuisances, cross_fit_nuisances, pseudo_outcomes
 from .pooled import HierarchicalDoseResponse
@@ -39,11 +38,9 @@ SHAPES = {
 }
 
 
-def _default_weights():
+def _default_weights(cat=None):
     from .balance import BalancingWeights
-    from .riesz import RieszWeights
-    return {"density": lambda r: GPS(random_state=r),
-            "learned": lambda r: RieszWeights(random_state=r),
+    return {"density": lambda r: GPS(categorical_features=cat, random_state=r),
             "balancing": lambda r: BalancingWeights()}
 
 
@@ -57,8 +54,9 @@ def coverage_check(X, A, Y, groups=None, outcome_model=None, weights=None, n_rep
                 fitted with partial pooling and every group's curve is scored
                 against the common true shape (balancing weights are skipped,
                 as they support one population only).
+    outcome_model : default: default_model() (spline-ridge + boosting stack).
     weights   : dict name -> callable(seed) returning a weight model; default
-                density, learned and balancing.
+                density (GPS) and balancing.
     shape     : "inverted_u", "saturating", "linear" or a callable of the
                 standardised dose z = (a - median) / sd.
     effect_size : peak-to-trough size of the true curve; default 0.5 * sd(Y).
@@ -71,7 +69,8 @@ def coverage_check(X, A, Y, groups=None, outcome_model=None, weights=None, n_rep
     for calibrated intervals (compare with 1.96 and the usual sup-t value).
     With few replications these are noisy; use n_reps >= 30 for reporting.
     """
-    from . import prepare_X
+    from . import _code_columns, prepare_X
+    from .models import default_model
     rng = np.random.default_rng(random_state)
     A = np.asarray(A, float)
     Y = np.asarray(Y, float)
@@ -79,9 +78,9 @@ def coverage_check(X, A, Y, groups=None, outcome_model=None, weights=None, n_rep
         groups = groups.to_frame() if isinstance(groups, pd.Series) else pd.DataFrame(groups)
         groups = groups.reset_index(drop=True)
     Xn = prepare_X(X, groups, add_group_codes)
-    om = outcome_model if outcome_model is not None else HistGradientBoostingRegressor(
-        max_iter=300, learning_rate=0.05, random_state=0)
-    weights = _default_weights() if weights is None else weights
+    cat = _code_columns(Xn, groups, add_group_codes)
+    om = outcome_model if outcome_model is not None else default_model(cat, random_state=random_state)
+    weights = _default_weights(cat) if weights is None else weights
     if groups is not None:
         weights = {k: v for k, v in weights.items() if not getattr(v(0), "in_sample", False)}
 

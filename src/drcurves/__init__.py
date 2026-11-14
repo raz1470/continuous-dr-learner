@@ -8,13 +8,21 @@ from .models import default_model
 from .nuisance import GPS, DiscreteGPS, Nuisances, cross_fit_nuisances, pseudo_outcomes
 from .pooled import HierarchicalDoseResponse
 from .bootstrap import bootstrap_curves
-from .riesz import RieszWeights, StackedWeights
 from .balance import BalancingWeights
 from .check import coverage_check
 
-__all__ = ["GPS", "DiscreteGPS", "Nuisances", "cross_fit_nuisances", "pseudo_outcomes",
-           "HierarchicalDoseResponse", "fit_dose_response", "bootstrap_curves", "prepare_X",
-           "RieszWeights", "StackedWeights", "BalancingWeights", "coverage_check", "default_model"]
+# Supported public API. Everything else (drcurves.riesz, drcurves.simulate, prepare_X) is
+# experimental or internal and may change without notice before 1.0.
+__all__ = [
+    # one call
+    "fit_dose_response", "HierarchicalDoseResponse",
+    # models and weights
+    "default_model", "GPS", "DiscreteGPS", "BalancingWeights",
+    # checks
+    "coverage_check", "bootstrap_curves",
+    # building blocks for custom pipelines
+    "cross_fit_nuisances", "pseudo_outcomes", "Nuisances",
+]
 
 
 def prepare_X(X, groups=None, add_group_codes=True):
@@ -44,9 +52,8 @@ def prepare_X(X, groups=None, add_group_codes=True):
         codes = [pd.factorize(g.iloc[:, : l + 1].astype(str).agg("|".join, axis=1))[0]
                  for l in range(g.shape[1])]
         Xn = np.column_stack([np.column_stack(codes).astype(float), Xn])
-    if np.isnan(Xn).any():
-        warnings.warn("X contains NaN: use nuisance models that accept missing values "
-                      "(HistGradientBoosting does).", stacklevel=2)
+    if np.isinf(Xn).any():
+        raise ValueError("X contains inf.")
     return Xn
 
 
@@ -66,10 +73,16 @@ def _check_dose(A, max_levels):
     return discrete
 
 
+def _code_columns(Xn, groups, add_group_codes):
+    """Indices of the group-code columns prepare_X puts first (treated as categorical)."""
+    n_codes = groups.shape[1] if (groups is not None and add_group_codes) else 0
+    return list(range(n_codes)) or None
+
+
 def fit_dose_response(X, A, Y, outcome_model=None, gps=None, groups=None, pooling="partial",
                       n_folds=5, n_basis=10, cluster=None, fold_groups=None,
                       cov_type="bayes", max_weight_quantile=0.99, add_group_codes=True,
-                      max_levels=30, random_state=0):
+                      max_levels=30, n_jobs=None, random_state=0):
     """One call: cross-fitted nuisances -> DR pseudo-outcomes -> pooled splines.
 
     X        : covariates (array or DataFrame; categorical columns are coded).
@@ -88,34 +101,33 @@ def fit_dose_response(X, A, Y, outcome_model=None, gps=None, groups=None, poolin
     cluster  : cluster ids for the robust covariance types.
     fold_groups : ids kept together in cross-fitting (e.g. customer id).
     cov_type : "bayes" (default), "robust_bayes" or "sandwich".
+    n_jobs   : parallel jobs for the default models (None = 1, -1 = all cores).
     Returns a fitted HierarchicalDoseResponse with .nuisances_, .pseudo_outcomes_
     and .diagnostics().
     """
     Y = np.asarray(Y, float)
-    if not np.all(np.isfinite(Y)):
-        raise ValueError("Y must be finite (found NaN or inf).")
+    A = np.asarray(A, float)
+    _check_inputs(X, A, Y, groups)
     if groups is not None:
         groups = groups.to_frame() if isinstance(groups, pd.Series) else pd.DataFrame(groups)
         groups = groups.reset_index(drop=True)
     discrete = _check_dose(A, max_levels)
     Xn = prepare_X(X, groups, add_group_codes)
-    n_codes = groups.shape[1] if (groups is not None and add_group_codes) else 0
-    cat = list(range(Xn.shape[1] - n_codes, Xn.shape[1])) or None
+    cat = _code_columns(Xn, groups, add_group_codes)
     if outcome_model is None:
         # the outcome model sees [X, A]; A is appended last, so the code columns keep their indices
-        outcome_model = default_model(cat, random_state=random_state)
+        outcome_model = default_model(cat, n_jobs=n_jobs, random_state=random_state)
     if gps is None:
         gps = (DiscreteGPS(random_state=random_state) if discrete
-               else GPS(categorical_features=cat, random_state=random_state))
+               else GPS(categorical_features=cat, n_jobs=n_jobs, random_state=random_state))
     elif discrete and type(gps) is GPS:
         warnings.warn(f"A has only {len(np.unique(A))} distinct values; a continuous GPS is not "
                       "a valid density for it. Use DiscreteGPS (the default when gps=None).",
                       stacklevel=2)
-    A = np.asarray(A, float)
     leaf = None if groups is None else groups.astype(str).agg("\x1f".join, axis=1).to_numpy()
     nuis = cross_fit_nuisances(Xn, A, Y, outcome_model, gps, groups=leaf, n_folds=n_folds,
                                max_levels=max_levels, fold_groups=fold_groups,
-                               random_state=random_state)
+                               n_jobs=n_jobs, random_state=random_state)
     xi = pseudo_outcomes(nuis, Y, kind="dr", max_weight_quantile=max_weight_quantile)
     model = HierarchicalDoseResponse(n_basis=n_basis, pooling=pooling, cov_type=cov_type).fit(
         A, xi, groups, cluster=cluster)
@@ -123,7 +135,44 @@ def fit_dose_response(X, A, Y, outcome_model=None, gps=None, groups=None, poolin
     model.pseudo_outcomes_ = xi
     model._diag_data = (A, leaf, max_weight_quantile)
     model.diagnostics = lambda: _diagnostics(model)
+    ess = model.diagnostics()["weights"]["ess_share"]
+    if np.isfinite(ess) and ess < 0.1:
+        warnings.warn(f"Poor overlap: the weights' effective sample size is {ess:.0%} of n, so a few "
+                      "units dominate the curve. Check model.diagnostics(), consider trimming the dose "
+                      "range, or try gps=BalancingWeights().", stacklevel=2)
     return model
+
+
+MIN_GROUP_ROWS = 10
+
+
+def _check_inputs(X, A, Y, groups):
+    """Fail early, with a clear message, on inputs the pipeline cannot handle."""
+    n = len(Y)
+    if Y.ndim != 1 or A.ndim != 1:
+        raise ValueError("A and Y must be one-dimensional.")
+    if len(A) != n or len(X) != n:
+        raise ValueError(f"X, A and Y must have the same length (got {len(X)}, {len(A)}, {n}).")
+    if groups is not None and len(groups) != n:
+        raise ValueError(f"groups must have one row per observation (got {len(groups)}, expected {n}).")
+    if not np.all(np.isfinite(Y)):
+        raise ValueError("Y must be finite (found NaN or inf).")
+    if not np.all(np.isfinite(A)):
+        raise ValueError("A must be finite (found NaN or inf).")
+    if np.ptp(A) == 0:
+        raise ValueError("A is constant: there is no variation in the dose to estimate a curve from.")
+    if n < 200:
+        warnings.warn(f"Only {n} rows: cross-fitted nuisance models and the curve will be very noisy.",
+                      stacklevel=3)
+    if groups is not None:
+        groups = groups.to_frame() if isinstance(groups, pd.Series) else pd.DataFrame(groups)
+        if groups.isna().any().any():
+            raise ValueError("groups contains missing values.")
+        leaf_n = groups.astype(str).agg("\x1f".join, axis=1).value_counts()
+        small = int((leaf_n < MIN_GROUP_ROWS).sum())
+        if small:
+            warnings.warn(f"{small} of {len(leaf_n)} groups have fewer than {MIN_GROUP_ROWS} rows; their curves "
+                          "will lean almost entirely on their parent group.", stacklevel=3)
 
 
 def _diagnostics(model):

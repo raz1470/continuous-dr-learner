@@ -22,8 +22,9 @@ import pandas as pd
 from sklearn.ensemble import HistGradientBoostingRegressor as HGB
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-from drcurves import (GPS, BalancingWeights, HierarchicalDoseResponse, RieszWeights,  # noqa: E402
+from drcurves import (GPS, BalancingWeights, HierarchicalDoseResponse,  # noqa: E402
                       cross_fit_nuisances, pseudo_outcomes)
+from drcurves.riesz import RieszWeights  # noqa: E402
 from drcurves.nuisance import Nuisances  # noqa: E402
 from drcurves.simulate import sim_high_dim  # noqa: E402
 

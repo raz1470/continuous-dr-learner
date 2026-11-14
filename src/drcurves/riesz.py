@@ -1,4 +1,7 @@
-"""Automatic debiasing for dose-response curves: learn the weight directly.
+"""EXPERIMENTAL: not part of the supported API. Learned (Riesz) weights gave accurate curves but
+intervals that under-covered badly in our simulations; may change or be removed before 1.0.
+
+Automatic debiasing for dose-response curves: learn the weight directly.
 
 The DR pseudo-outcome needs the weight  r0(x, a) = varpi(a) / pi(a | x)
 = p(x) p(a) / p(x, a). Instead of estimating the density pi (hard with many

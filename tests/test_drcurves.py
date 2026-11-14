@@ -1,3 +1,4 @@
+import pytest
 import numpy as np
 import pandas as pd
 from sklearn.linear_model import LinearRegression
@@ -166,8 +167,8 @@ def test_nan_outcome_raises():
 
 def test_many_groups_sparse_path():
     rng = np.random.default_rng(7)
-    S = 1500
-    st = rng.integers(0, S, S * 20)
+    S = 400
+    st = rng.integers(0, S, S * 12)
     a = rng.normal(size=len(st))
     y = np.sin(a) + rng.normal(size=len(st))
     m = HierarchicalDoseResponse().fit(a, y, pd.DataFrame({"r": st % 15, "s": st}))
@@ -176,9 +177,10 @@ def test_many_groups_sparse_path():
     assert np.all(np.isfinite(est)) and np.all(se > 0)
 
 
+@pytest.mark.slow
 def test_riesz_weights_track_true_ratio_and_default():
     from scipy.stats import norm
-    from drcurves import RieszWeights
+    from drcurves.riesz import RieszWeights
     rng = np.random.default_rng(8)
     n = 4000
     X = rng.normal(size=(n, 3))
@@ -227,3 +229,34 @@ def test_coverage_check_runs():
     assert set(summary.weights) == {"density", "balancing"}
     assert summary.pointwise.between(0, 1).all() and len(per) == 4
     assert (summary.critical_simultaneous >= summary.critical_pointwise).all()
+
+
+def test_default_models_recover_curve_with_nan_in_x():
+    """End-to-end regression test of the defaults: stacked models, density weights, one curve."""
+    from drcurves.simulate import sim_nonlinear
+    X, A, Y, f = sim_nonlinear(n=2000, curve="inverted_u_centred", seed=11)
+    X = np.asarray(X, float).copy()
+    X[::50, 2] = np.nan                       # missing values are handled by the default models
+    m = fit_dose_response(X, A, Y)
+    g = np.linspace(*np.quantile(A, [0.05, 0.95]), 30)
+    est, se = m.curve(g, centre=True)
+    t = f(g) - f(g).mean()
+    assert np.sqrt(np.mean((est - t) ** 2)) < 0.2
+    assert np.all(se > 0)
+
+
+def test_input_checks():
+    rng = np.random.default_rng(12)
+    X, A, Y = rng.normal(size=(300, 2)), rng.normal(size=300), rng.normal(size=300)
+    om = LinearRegression()
+    gps = GPS(mean_model=LinearRegression(), heteroscedastic=False)
+    with pytest.raises(ValueError, match="same length"):
+        fit_dose_response(X, A[:-1], Y, outcome_model=om, gps=gps)
+    with pytest.raises(ValueError, match="constant"):
+        fit_dose_response(X, np.ones(300), Y, outcome_model=om, gps=gps)
+    with pytest.raises(ValueError, match="finite"):
+        fit_dose_response(X, np.r_[np.nan, A[1:]], Y, outcome_model=om, gps=gps)
+    groups = pd.Series(rng.choice(list("abcdefghijklmnopqrstuvwxyz") * 2, 300))
+    groups.iloc[:3] = ["tiny1", "tiny2", "tiny3"]
+    with pytest.warns(UserWarning, match="fewer than"):
+        fit_dose_response(X, A, Y, outcome_model=om, gps=gps, groups=groups)

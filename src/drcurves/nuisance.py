@@ -13,6 +13,8 @@ from dataclasses import dataclass
 
 import numpy as np
 from scipy.stats import gaussian_kde, norm
+from joblib import Parallel, delayed
+
 from .models import default_model
 from sklearn.base import BaseEstimator, clone
 from sklearn.ensemble import HistGradientBoostingRegressor
@@ -35,28 +37,30 @@ class GPS(BaseEstimator):
         log squared residuals, which produce near-zero scales and exploding weights.)
     heteroscedastic : model s(X) (True) or use a constant scale (False).
     categorical_features : column indices treated as categorical by the default models.
+    n_jobs : parallel jobs for the default models.
     residual : "kde" (non-parametric shape for e) or "gaussian".
     """
 
     def __init__(self, mean_model=None, scale_model=None, heteroscedastic=True,
-                 residual="kde", categorical_features=None, random_state=0):
+                 residual="kde", categorical_features=None, n_jobs=None, random_state=0):
         self.mean_model = mean_model
         self.scale_model = scale_model
         self.heteroscedastic = heteroscedastic
         self.residual = residual
         self.categorical_features = categorical_features
+        self.n_jobs = n_jobs
         self.random_state = random_state
 
     def fit(self, X, A):
         A = np.asarray(A, float)
         mm = self.mean_model if self.mean_model is not None else default_model(
-            self.categorical_features, random_state=self.random_state)
+            self.categorical_features, n_jobs=self.n_jobs, random_state=self.random_state)
         # out-of-fold residuals so the scale/shape are not shrunk by overfitting
-        r = A - cross_val_predict(clone(mm), X, A, cv=KFold(3, shuffle=True, random_state=self.random_state))
+        r = A - cross_val_predict(clone(mm), X, A, cv=KFold(2, shuffle=True, random_state=self.random_state))
         self.mean_model_ = clone(mm).fit(X, A)
         if self.heteroscedastic:
             sm = self.scale_model if self.scale_model is not None else default_model(
-                self.categorical_features, max_iter=100, random_state=self.random_state)
+                self.categorical_features, n_jobs=self.n_jobs, random_state=self.random_state)
             self.scale_model_ = clone(sm).fit(X, np.abs(r))
             self.scale_floor_ = 0.25 * np.mean(np.abs(r))
             s = self._raw_scale(X)
@@ -157,7 +161,7 @@ def _predict_chunked(fn, Xr, ar, chunk=200_000):
 
 def cross_fit_nuisances(X, A, Y, outcome_model, gps, groups=None, n_folds=5,
                         n_grid=60, n_ref=1000, max_ref_total=60_000, max_levels=30,
-                        fold_groups=None, random_state=0) -> Nuisances:
+                        fold_groups=None, n_jobs=None, random_state=0) -> Nuisances:
     """Cross-fit outcome model and GPS; return everything the pseudo-outcomes need.
 
     groups      : finest grouping level (length n). Integrals over P(x) are taken
@@ -165,6 +169,7 @@ def cross_fit_nuisances(X, A, Y, outcome_model, gps, groups=None, n_folds=5,
                   (A, group) targets theta_g(a) = E[Y(a) | G = g]. The group
                   should also be (encoded) in X so the nuisance models can use it.
     fold_groups : ids kept together in cross-fitting (e.g. customer id).
+    n_jobs      : folds fitted in parallel threads (None = 1, -1 = all cores).
     max_levels  : if A has at most this many distinct values it is treated as
                   discrete: integrals are evaluated at those values exactly.
     n_ref / max_ref_total : rows per group (and in total) used for the integrals.
@@ -201,24 +206,42 @@ def cross_fit_nuisances(X, A, Y, outcome_model, gps, groups=None, n_folds=5,
     m_tab = np.zeros((G, J))
     w_tab = np.zeros((G, J))
     fold = _folds(n, n_folds, fold_groups, random_state)
-    for k in range(n_folds):
+    is_ratio = gps is not None and getattr(gps, "is_ratio", False)
+    in_sample = gps is not None and getattr(gps, "in_sample", False)
+
+    def fit_fold(k):
         tr, te = np.flatnonzero(fold != k), np.flatnonzero(fold == k)
+        out = {"te": te}
         if outcome_model is not None:
             om = clone(outcome_model).fit(_feat(X[tr], A[tr]), Y[tr])
-            mu[te] = om.predict(_feat(X[te], A[te]))
-            np.add.at(m_tab, (gr, jr), _predict_chunked(lambda x, a: om.predict(_feat(x, a)), Xr, ar))
-        if gps is not None and getattr(gps, "in_sample", False):
+            out["mu"] = om.predict(_feat(X[te], A[te]))
+            out["m"] = _predict_chunked(lambda x, a: om.predict(_feat(x, a)), Xr, ar)
+        if gps is None or in_sample:
             pass                 # in-sample weights (balancing) are computed once below
-        elif gps is not None and getattr(gps, "is_ratio", False):
+        elif is_ratio:
             # weight learned directly (automatic debiasing): no density needed
             gm = clone(gps).fit(X[tr], A[tr], None if groups is None else g[tr])
-            pi[te] = 1.0
-            ratio_w = ratio_w if "ratio_w" in dir() else np.full(n, np.nan)
-            ratio_w[te] = gm.weight(X[te], A[te], None if groups is None else g[te])
-        elif gps is not None:
+            out["ratio"] = gm.weight(X[te], A[te], None if groups is None else g[te])
+        else:
             gm = clone(gps).fit(X[tr], A[tr])
-            pi[te] = gm.density(X[te], A[te])
-            np.add.at(w_tab, (gr, jr), _predict_chunked(gm.density, Xr, ar))
+            out["pi"] = gm.density(X[te], A[te])
+            out["w"] = _predict_chunked(gm.density, Xr, ar)
+        return out
+
+    # folds run in threads: the heavy lifting (boosting, linear algebra) releases the GIL
+    results = Parallel(n_jobs=n_jobs, prefer="threads")(delayed(fit_fold)(k) for k in range(n_folds))
+    ratio_w = np.full(n, np.nan)
+    for r in results:
+        te = r["te"]
+        if "mu" in r:
+            mu[te] = r["mu"]
+            np.add.at(m_tab, (gr, jr), r["m"])
+        if "pi" in r:
+            pi[te] = r["pi"]
+            np.add.at(w_tab, (gr, jr), r["w"])
+        if "ratio" in r:
+            pi[te] = 1.0
+            ratio_w[te] = r["ratio"]
     m_tab /= (counts[:, None] * n_folds)
     w_tab /= (counts[:, None] * n_folds)
 

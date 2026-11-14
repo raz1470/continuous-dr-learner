@@ -21,13 +21,12 @@ DoubleML's partially linear model (`DoubleMLPLR`) is the usual tool for a contin
 
 ```python
 import numpy as np
-from sklearn.ensemble import HistGradientBoostingRegressor as HGB
 from drcurves import fit_dose_response
 from drcurves.simulate import sim_hierarchical
 
 df, _, _ = sim_hierarchical(seed=0)                 # region, store, x0..x2, A, Y
 model = fit_dose_response(X=df[["x0", "x1", "x2"]], A=df["A"], Y=df["Y"],
-                          outcome_model=HGB(), groups=df[["region", "store"]])
+                          groups=df[["region", "store"]])  # default models: spline + boosting stack
 print(model.diagnostics())                          # read this first
 
 a_grid = np.linspace(*np.quantile(df["A"], [0.05, 0.95]), 50)
@@ -40,10 +39,10 @@ Inputs:
 - `X` can be an array or a DataFrame (non-numeric columns are integer-coded). Group codes are appended automatically (`add_group_codes=True`) so the nuisance models see the groups.
 - Models: by default every nuisance model (outcome, dose mean, dose scale) is `default_model()`, a stack of a spline regression and gradient boosting blended by cross-validation. Boosting alone made density weights explode with many confounders; the stack fixed that in our simulations (see the comparison below). Pass your own sklearn regressors to override.
 - Weights: for a continuous `A` the default is `GPS()`, Kennedy et al.'s density-based weights. `BalancingWeights()` is an alternative for a population curve.
-- `gps=RieszWeights()` (automatic debiasing) learns the weight varpi(a)/pi(a|x) directly by minimising the Riesz loss with boosted trees; no density is estimated. With 50 confounders, density weights made DR worse than plug-in, while learned weights beat it (Sim 5). **But** the intervals don't account for the bias learned weights leave behind: 95% bands covered about half the time on the Sim 1 data. Use it for the point estimate when there are many confounders, and check intervals with `bootstrap_curves`.
-- `BalancingWeights()`: entropy-balancing weights that decorrelate the dose from the covariates (and their squares). Best with many covariates; population curve only (`groups=None`).
-- `StackedWeights()` (experimental) mixes the two, choosing the mix by held-out Riesz loss. That loss is noisy, dominated by a few extreme weights, so it isn't the default.
+- Experimental (not part of the supported API, may change): `drcurves.riesz.RieszWeights` (weights learned directly by minimising the Riesz loss) and `StackedWeights`. Accurate curves with many confounders, but intervals that under-covered badly in our simulations.
 - `A` with ≤ 30 distinct values (tiers, counts) is treated as discrete: `DiscreteGPS` (a classifier over the dose levels) is used automatically, because a continuous density is not a valid weight for a discrete dose.
+- `X` may contain missing values (the default models handle them). Inputs are checked up front: mismatched lengths, a constant or non-finite dose, and groups with fewer than 10 rows give clear errors or warnings; poor overlap (weights' effective sample size under 10% of n) warns after fitting.
+- Speed: about 45 s for 3,000 rows and 50 confounders on 2 cores. `n_jobs=-1` fits the cross-fitting folds in parallel; boosting already uses all cores, so the gain is modest.
 - A point mass in a continuous dose (e.g. many zeros) triggers a warning; model "any vs none" separately.
 - `fold_groups=` keeps ids (e.g. customers) together in cross-fitting; `cluster=` makes robust covariances cluster-robust.
 - NaN in `A`/`Y`/groups raises; NaN in `X` warns (use models that accept missing values).
@@ -139,7 +138,8 @@ src/drcurves/
   pooled.py     HierarchicalDoseResponse: P-splines with nested ridge deviations, GCV-tuned;
                 bands, contrasts, optimal dose, draws
   bootstrap.py  full-pipeline bootstrap
-  riesz.py      RieszWeights: automatic debiasing (weights learned directly, no density)
+  models.py     default_model: spline-ridge + boosting stack used for every nuisance model
+  riesz.py      experimental: RieszWeights (weights learned directly, no density)
   balance.py    BalancingWeights: entropy balancing for a continuous dose
   check.py      coverage_check: plasmode coverage check and calibration on your data
   simulate.py   the three data-generating processes (true curves known)

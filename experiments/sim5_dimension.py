@@ -16,7 +16,8 @@ import pandas as pd
 from sklearn.ensemble import HistGradientBoostingRegressor as HGB
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-from drcurves import GPS, HierarchicalDoseResponse, RieszWeights, cross_fit_nuisances, pseudo_outcomes  # noqa: E402
+from drcurves import GPS, HierarchicalDoseResponse, cross_fit_nuisances, pseudo_outcomes  # noqa: E402
+from drcurves.riesz import RieszWeights  # noqa: E402
 from drcurves.nuisance import Nuisances  # noqa: E402
 from drcurves.simulate import sim_high_dim  # noqa: E402
 
@@ -46,7 +47,7 @@ for rep in range(REPS):
         X, A, Y, f, w_true = sim_high_dim(n=3000, p=p, seed=500 + rep, return_oracle=True)
         hgb = HGB(max_iter=300, learning_rate=0.05, random_state=0)
         nu = cross_fit_nuisances(X, A, Y, hgb, GPS(), random_state=rep)
-        nr = cross_fit_nuisances(X, A, Y, None, RieszWeights(random_state=rep), random_state=rep)
+        nr = cross_fit_nuisances(X, A, Y, None(random_state=rep), random_state=rep)
         no = Nuisances(mu=nu.mu, m=nu.m, pi=np.ones_like(w_true), varpi=w_true)
         nrz = Nuisances(mu=nu.mu, m=nu.m, pi=nr.pi, varpi=nr.varpi)
         g = grids[p]

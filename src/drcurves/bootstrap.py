@@ -10,7 +10,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from .nuisance import cross_fit_nuisances, pseudo_outcomes
+from .nuisance import GPS, cross_fit_nuisances, pseudo_outcomes
 from .pooled import HierarchicalDoseResponse
 
 
@@ -35,6 +35,7 @@ def bootstrap_curves(X, A, Y, outcome_model, gps, a_grid, paths=(None,), groups=
     refit_nuisances  : refit outcome model and GPS in every replicate (slow, complete)
                        or keep the original pseudo-outcomes (fast, misses nuisance noise).
     retune           : re-select the penalties by GCV in every replicate.
+    outcome_model, gps : None uses the package defaults (default_model() and GPS()).
     Rows are resampled within each leaf group, so every group appears in every
     replicate and its curve stays defined.
 
@@ -49,6 +50,11 @@ def bootstrap_curves(X, A, Y, outcome_model, gps, a_grid, paths=(None,), groups=
     if groups is not None:
         groups = pd.DataFrame(groups).reset_index(drop=True)
     leaf = None if groups is None else groups.astype(str).agg("\x1f".join, axis=1).to_numpy()
+    if outcome_model is None:
+        from .models import default_model
+        outcome_model = default_model(random_state=random_state)
+    if gps is None:
+        gps = GPS(random_state=random_state)
 
     nuis = cross_fit_nuisances(X, A, Y, outcome_model, gps, groups=leaf, n_folds=n_folds,
                                random_state=random_state)

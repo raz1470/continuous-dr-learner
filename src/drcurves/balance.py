@@ -93,7 +93,7 @@ class BalancingWeights:
     def fit_weights(self, X, A, groups=None, Y=None):
         if groups is not None:
             raise NotImplementedError("BalancingWeights supports a single population (groups=None); "
-                                      "use GPS() or RieszWeights() for group curves.")
+                                      "use GPS() for group curves.")
         A = np.asarray(A, float)
         C = self._constraints(X, A, Y if self.scores else None)
         n, k = C.shape

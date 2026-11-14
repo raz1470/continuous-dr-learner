@@ -10,20 +10,17 @@
 - [x] Fast test suite (~40 s; slow experimental test behind `-m slow`) with an end-to-end recovery test of the defaults.
 
 ## Features
-- [ ] DiD option: `fit_dose_response(..., y_pre=...)` fits on the change in outcome; document that
-      comparing across doses needs strong parallel trends.
-- [ ] Lagged-outcome option (adjust for `y_pre` as a confounder), so users can bracket the two
-      assumptions as in the DiD vs lagged-outcome article.
-- [ ] `placebo_check(X, A, y_pre, y_prepre)`: curve on a pre-period change; judge it by the size of
-      the curve (max deviation vs the main effect), not by whether its band excludes zero, which
-      is far too sensitive.
+- [x] DiD option: `fit_dose_response(..., y_pre=...)` fits on the change in outcome.
+- [x] Lagged-outcome option: `design="lagged"`.
+- [x] `placebo_check`, judged by size relative to the main effect.
 - [ ] Add the integral term to the pointwise variance (Kennedy et al. 2017, as in npcausal's
       `ctseff`) so the intervals account for estimating m(a).
 - [x] Use the stacked default inside `coverage_check` and `bootstrap_curves`.
-- [ ] Discrete doses: with n=2,500 and rare top/bottom levels, `DiscreteGPS` weights blew the curve up at
+- [x] Discrete doses (stacked classifier, rare levels merged, defensive mixture): with n=2,500 and rare top/bottom levels, `DiscreteGPS` weights blew the curve up at
       the edges (error 5.6 vs 0.2 at n=4,000). Stabilise (stacked classifier, pooling rare levels, or
       warning) before release.
-- [ ] `.plot()` on the fitted model.
+- [x] `.plot()` on the fitted model.
+- [ ] Predictive band for an unseen group: add the between-group variance, so a new store's band is wider than its region's.
 
 ## Evidence
 - [ ] Harder simulation: interactions, thresholds, heavy-tailed noise, weaker overlap. Compare the
@@ -40,8 +37,8 @@
 - [ ] Faster tests (smaller n) so CI runs in a couple of minutes.
 
 ## Docs
-- [ ] README: lead with what it's for (pick your assumption, get dose-response curves, many groups,
+- [x] README: lead with what it's for (pick your assumption, get dose-response curves, many groups,
       many confounders) and when to use something else.
-- [ ] Two worked examples (notebooks): one population curve; group curves with a hierarchy.
-- [ ] Docstrings for every public function; a short API page.
+- [x] Two worked examples (notebooks): one population curve; group curves with a hierarchy.
+- [x] Docstrings for every public function; a short API page (`docs/api.md`, generated).
 - [ ] Link the TDS article once it's live.

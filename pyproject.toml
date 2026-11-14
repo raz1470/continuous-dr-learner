@@ -12,8 +12,9 @@ license = { text = "MIT" }
 dependencies = ["numpy", "scipy>=1.8", "pandas", "scikit-learn>=1.2"]
 
 [project.optional-dependencies]
-experiments = ["doubleml>=0.9", "matplotlib"]
-dev = ["pytest"]
+plot = ["matplotlib>=3.5"]
+experiments = ["doubleml>=0.9", "matplotlib>=3.5", "causal-curve", "playwright"]
+dev = ["pytest", "matplotlib>=3.5", "nbconvert", "ipykernel"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

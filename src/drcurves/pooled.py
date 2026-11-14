@@ -152,6 +152,7 @@ class HierarchicalDoseResponse:
         y = np.asarray(y, float)
         if not (np.all(np.isfinite(a)) and np.all(np.isfinite(y))):
             raise ValueError("a and y must be finite (found NaN or inf).")
+        self.a_ = a
         if groups is not None:
             groups = (groups.to_frame() if isinstance(groups, pd.Series) else pd.DataFrame(groups))
             groups = groups.reset_index(drop=True)
@@ -325,6 +326,53 @@ class HierarchicalDoseResponse:
         np.add.at(m, np.searchsorted(idx, i2), M2[0])
         np.add.at(m, np.searchsorted(idx, i1), -M1[0])
         return float(m @ self.coef_[idx]), float(np.sqrt(max(m @ self._cov(idx, cov_type) @ m, 0)))
+
+    def plot(self, a_grid=None, paths=(None,), labels=None, band="pointwise", level=0.95, centre=False,
+             truth=None, rug=True, ax=None, cov_type=None):
+        """Plot one or more curves with their bands (needs matplotlib).
+
+        paths  : group paths to draw, e.g. [None] or [("north",), ("north", "s17")].
+        band   : "pointwise", "simultaneous" or None.
+        truth  : optional callable a -> true curve, drawn dashed (for simulations).
+        rug    : tick marks along the x axis at the observed doses.
+        Returns the matplotlib Axes.
+        """
+        import matplotlib.pyplot as plt
+        if a_grid is None:
+            a_grid = np.linspace(self.lo_, self.hi_, 100)
+        a_grid = np.asarray(a_grid, float)
+        if ax is None:
+            _, ax = plt.subplots(figsize=(7, 4.2))
+        colors = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#7c5cd6", "#d64a8a", "#5b6b7f", "#0f9fb8"]
+        paths = list(paths)
+        labels = labels or [("Estimated curve" if p is None else " / ".join(map(str, p))) for p in paths]
+        for i, (p, lab) in enumerate(zip(paths, labels)):
+            col = colors[i % len(colors)]
+            if band is None:
+                est, _ = self.curve(a_grid, p, centre, cov_type)
+            else:
+                est, lo, hi, _ = self.band(a_grid, p, level, simultaneous=(band == "simultaneous"),
+                                           centre=centre, cov_type=cov_type)
+                ax.fill_between(a_grid, lo, hi, color=col, alpha=0.15, linewidth=0)
+            ax.plot(a_grid, est, color=col, linewidth=2, label=lab)
+        if truth is not None:
+            t = np.asarray(truth(a_grid), float)
+            ax.plot(a_grid, t - t.mean() if centre else t, color="#111827", linewidth=1.6,
+                    linestyle=(0, (5, 4)), label="Truth")
+        if rug and getattr(self, "a_", None) is not None:
+            a = self.a_[(self.a_ >= a_grid.min()) & (self.a_ <= a_grid.max())]
+            a = np.random.default_rng(0).choice(a, min(len(a), 2000), replace=False)
+            ax.plot(a, np.full(len(a), 0.0), "|", color="#6b7280", alpha=0.25, markersize=8,
+                    transform=ax.get_xaxis_transform())
+        ax.set_xlabel("Dose")
+        ax.set_ylabel("Outcome (centred)" if centre else "Outcome")
+        ax.grid(True, color="#e5e7eb", linewidth=0.8)
+        ax.set_axisbelow(True)
+        for side in ("top", "right"):
+            ax.spines[side].set_visible(False)
+        if len(paths) > 1 or truth is not None:
+            ax.legend(frameon=False)
+        return ax
 
     def optimal_dose(self, a_grid, path=None, level=0.95, n_draws=4000, maximize=True,
                      cov_type=None, seed=0):

@@ -91,6 +91,7 @@ class BalancingWeights:
         return C / np.maximum(C.std(0), 1e-12)
 
     def fit_weights(self, X, A, groups=None, Y=None):
+        """Weights for every row, chosen so the weighted dose is uncorrelated with the balance terms."""
         if groups is not None:
             raise NotImplementedError("BalancingWeights supports a single population (groups=None); "
                                       "use GPS() for group curves.")

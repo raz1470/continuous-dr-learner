@@ -9,8 +9,9 @@ those steps turn into extreme weights in the dose density.
 import numpy as np
 from sklearn.compose import ColumnTransformer
 from sklearn.impute import SimpleImputer
-from sklearn.ensemble import HistGradientBoostingRegressor, StackingRegressor
-from sklearn.linear_model import LinearRegression, RidgeCV
+from sklearn.ensemble import (HistGradientBoostingClassifier, HistGradientBoostingRegressor,
+                              StackingClassifier, StackingRegressor)
+from sklearn.linear_model import LinearRegression, LogisticRegression, RidgeCV
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import OneHotEncoder, SplineTransformer, StandardScaler
 
@@ -60,3 +61,14 @@ class _SplineOneHot(ColumnTransformer):
         self.transformers = [
             ("spl", make_pipeline(SimpleImputer(), StandardScaler(), SplineTransformer(n_knots=self.n_knots, degree=3)), num),
             ("oh", OneHotEncoder(handle_unknown="ignore", sparse_output=False), self.cat)]
+
+
+def default_classifier(n_knots=5, max_iter=500, learning_rate=0.05, cv=2, n_jobs=None, random_state=0):
+    """Spline logistic regression + boosting, blended by a logistic regression on their
+    out-of-fold probabilities. Used by DiscreteGPS for the probability of each dose level."""
+    logit = make_pipeline(SimpleImputer(), StandardScaler(), SplineTransformer(n_knots=n_knots, degree=3),
+                          LogisticRegression(C=1.0, max_iter=2000))
+    hgb = HistGradientBoostingClassifier(max_iter=max_iter, learning_rate=learning_rate, early_stopping=True,
+                                         n_iter_no_change=10, validation_fraction=0.1, random_state=random_state)
+    return StackingClassifier([("logit", logit), ("hgb", hgb)], final_estimator=LogisticRegression(max_iter=2000),
+                              stack_method="predict_proba", cv=cv, n_jobs=n_jobs)

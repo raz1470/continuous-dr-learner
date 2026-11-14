@@ -122,7 +122,7 @@ def test_bootstrap_runs():
 def test_discrete_dose_uses_discrete_gps_and_recovers_curve():
     from drcurves import DiscreteGPS
     rng = np.random.default_rng(5)
-    n = 4000
+    n = 1500          # small enough that the top and bottom levels are rare (regression test)
     X = rng.normal(size=(n, 2))
     # notifications per week, 0..8, more for engaged users (confounded)
     A = np.clip(np.round(3 + 1.2 * X[:, 0] + rng.normal(size=n) * 1.5), 0, 8)
@@ -260,3 +260,37 @@ def test_input_checks():
     groups.iloc[:3] = ["tiny1", "tiny2", "tiny3"]
     with pytest.warns(UserWarning, match="fewer than"):
         fit_dose_response(X, A, Y, outcome_model=om, gps=gps, groups=groups)
+
+
+def test_merge_rare_levels():
+    from drcurves.nuisance import _merge_rare
+    assert list(_merge_rare(np.array([1, 30, 40, 5, 2]), 20)) == [0, 0, 1, 1, 1]
+    assert list(_merge_rare(np.array([50, 60]), 20)) == [0, 1]
+
+
+def test_did_design_removes_stable_trait_and_placebo_is_small():
+    from drcurves import placebo_check
+    from drcurves.simulate import sim_did
+    X, A, Y, f = sim_did(n=1500, seed=3)
+    g = np.linspace(*np.quantile(A, [0.05, 0.95]), 30)
+    t = f(g) - f(g).mean()
+    rmse = lambda m: np.sqrt(np.mean((m.curve(g, centre=True)[0] - t) ** 2))   # noqa: E731
+    levels = fit_dose_response(X, A, Y[1])
+    did = fit_dose_response(X, A, Y[1], y_pre=Y[0])
+    assert did.design_ == "did" and rmse(did) < 0.25 < rmse(levels)
+    pc = placebo_check(X, A, Y[0], Y[-1], main=did)
+    assert pc["relative"] < 0.15
+    with pytest.raises(ValueError, match="needs y_pre"):
+        fit_dose_response(X, A, Y[1], design="did")
+
+
+def test_plot_returns_axes():
+    import matplotlib
+    matplotlib.use("Agg")
+    rng = np.random.default_rng(13)
+    a = rng.normal(size=600)
+    y = np.sin(a) + rng.normal(size=600)
+    g = pd.DataFrame({"r": rng.choice(["n", "s"], 600)})
+    m = HierarchicalDoseResponse().fit(a, y, g)
+    ax = m.plot(paths=[None, ("n",), ("s",)], truth=np.sin, band="simultaneous")
+    assert len(ax.lines) >= 4

@@ -10,6 +10,7 @@ from .pooled import HierarchicalDoseResponse
 from .bootstrap import bootstrap_curves
 from .balance import BalancingWeights
 from .check import coverage_check
+from .did import placebo_check
 
 # Supported public API. Everything else (drcurves.riesz, drcurves.simulate, prepare_X) is
 # experimental or internal and may change without notice before 1.0.
@@ -19,7 +20,7 @@ __all__ = [
     # models and weights
     "default_model", "GPS", "DiscreteGPS", "BalancingWeights",
     # checks
-    "coverage_check", "bootstrap_curves",
+    "coverage_check", "bootstrap_curves", "placebo_check",
     # building blocks for custom pipelines
     "cross_fit_nuisances", "pseudo_outcomes", "Nuisances",
 ]
@@ -82,7 +83,7 @@ def _code_columns(Xn, groups, add_group_codes):
 def fit_dose_response(X, A, Y, outcome_model=None, gps=None, groups=None, pooling="partial",
                       n_folds=5, n_basis=10, cluster=None, fold_groups=None,
                       cov_type="bayes", max_weight_quantile=0.99, add_group_codes=True,
-                      max_levels=30, n_jobs=None, random_state=0):
+                      max_levels=30, y_pre=None, design=None, n_jobs=None, random_state=0):
     """One call: cross-fitted nuisances -> DR pseudo-outcomes -> pooled splines.
 
     X        : covariates (array or DataFrame; categorical columns are coded).
@@ -94,19 +95,39 @@ def fit_dose_response(X, A, Y, outcome_model=None, gps=None, groups=None, poolin
                spline-ridge + boosting stack.
     gps      : the weight model. None picks DiscreteGPS when A has <= max_levels
                distinct values, otherwise GPS() (density-based weights, Kennedy
-               et al. 2017), whose intervals had close to nominal coverage in
-               our simulations. RieszWeights() learns the weight directly
-               (automatic debiasing): much more accurate curves with many
-               covariates, but its intervals under-cover (see README).
+               et al. 2017). BalancingWeights() is an alternative for a
+               population curve (groups=None).
     cluster  : cluster ids for the robust covariance types.
     fold_groups : ids kept together in cross-fitting (e.g. customer id).
     cov_type : "bayes" (default), "robust_bayes" or "sandwich".
     n_jobs   : parallel jobs for the default models (None = 1, -1 = all cores).
+    y_pre    : the outcome before the dose (same units). With it, choose `design`:
+               "did" (default): fit on the change Y - y_pre. Removes stable unobserved traits,
+                   but comparing doses needs strong parallel trends: units on different doses
+                   would have followed the same path had their doses been equal.
+               "lagged": keep Y and adjust for y_pre as a confounder. Right when the dose
+                   responds to past outcomes rather than to a stable trait.
+               The two bracket the truth when you don't know which applies; check "did" with
+               placebo_check on two pre-periods.
     Returns a fitted HierarchicalDoseResponse with .nuisances_, .pseudo_outcomes_
     and .diagnostics().
     """
     Y = np.asarray(Y, float)
     A = np.asarray(A, float)
+    if design is not None and y_pre is None:
+        raise ValueError("design needs y_pre (the outcome before the dose).")
+    if y_pre is not None:
+        y_pre = np.asarray(y_pre, float)
+        design = design or "did"
+        if design not in ("did", "lagged"):
+            raise ValueError('design must be "did" or "lagged".')
+        if y_pre.shape != Y.shape or not np.all(np.isfinite(y_pre)):
+            raise ValueError("y_pre must be finite and the same length as Y.")
+        if design == "did":
+            Y = Y - y_pre
+        else:
+            X = pd.concat([X.reset_index(drop=True), pd.Series(y_pre, name="_y_pre")], axis=1) \
+                if isinstance(X, pd.DataFrame) else np.column_stack([np.asarray(X, float), y_pre])
     _check_inputs(X, A, Y, groups)
     if groups is not None:
         groups = groups.to_frame() if isinstance(groups, pd.Series) else pd.DataFrame(groups)
@@ -135,6 +156,7 @@ def fit_dose_response(X, A, Y, outcome_model=None, gps=None, groups=None, poolin
     model.pseudo_outcomes_ = xi
     model._diag_data = (A, leaf, max_weight_quantile)
     model.diagnostics = lambda: _diagnostics(model)
+    model.design_ = design or "levels"
     ess = model.diagnostics()["weights"]["ess_share"]
     if np.isfinite(ess) and ess < 0.1:
         warnings.warn(f"Poor overlap: the weights' effective sample size is {ess:.0%} of n, so a few "

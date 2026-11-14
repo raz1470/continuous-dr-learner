@@ -15,7 +15,7 @@ import numpy as np
 from scipy.stats import gaussian_kde, norm
 from joblib import Parallel, delayed
 
-from .models import default_model
+from .models import default_classifier, default_model
 from sklearn.base import BaseEstimator, clone
 from sklearn.ensemble import HistGradientBoostingRegressor
 from sklearn.model_selection import KFold, cross_val_predict
@@ -52,6 +52,7 @@ class GPS(BaseEstimator):
         self.random_state = random_state
 
     def fit(self, X, A):
+        """Fit the dose mean and scale models and the residual density on (X, A)."""
         A = np.asarray(A, float)
         mm = self.mean_model if self.mean_model is not None else default_model(
             self.categorical_features, n_jobs=self.n_jobs, random_state=self.random_state)
@@ -99,38 +100,89 @@ class DiscreteGPS(BaseEstimator):
     (tiers, counts such as notifications per week): a classifier's predicted
     probability of each level. With a discrete dose, varpi/pi is a ratio of
     probabilities, which is the right weight (a continuous density is not).
+
+    classifier : default stacks a spline logistic regression with boosting, which gives
+        far better-calibrated probabilities for rare levels than boosting alone.
+    defensive  : share of the marginal level probabilities mixed into every prediction,
+        p = (1 - defensive) * p(a | x) + defensive * p(a). This bounds each weight by
+        1 / defensive (20 by default), as the continuous GPS's defensive mixture does.
+        Without it, rare top or bottom levels got near-zero probabilities and their
+        weights blew the ends of the curve up in smaller samples.
     """
 
-    def __init__(self, classifier=None, floor=1e-4, random_state=0):
+    def __init__(self, classifier=None, defensive=0.05, min_count=20, floor=1e-4, n_jobs=None, random_state=0):
         self.classifier = classifier
+        self.min_count = min_count
+        self.defensive = defensive
         self.floor = floor
+        self.n_jobs = n_jobs
         self.random_state = random_state
 
     def fit(self, X, A):
+        """Fit the level classifier on (X, A), merging levels with fewer than min_count rows."""
         A = np.asarray(A, float)
         self.levels_ = np.unique(A)
-        clf = self.classifier if self.classifier is not None else HistGradientBoostingClassifier(
-            max_iter=200, learning_rate=0.05, random_state=self.random_state)
+        clf = self.classifier if self.classifier is not None else default_classifier(
+            n_jobs=self.n_jobs, random_state=self.random_state)
         codes = np.searchsorted(self.levels_, A)
-        self.clf_ = clone(clf).fit(X, codes)
+        raw = np.bincount(codes, minlength=len(self.levels_))
+        # merge levels with fewer than min_count rows into a neighbour, so the classifier never
+        # sees a near-empty class; probability is shared within a merged block by level frequency
+        self.block_ = _merge_rare(raw, self.min_count)
+        nb = self.block_.max() + 1
+        self.clf_ = clone(clf).fit(X, self.block_[codes]) if nb > 1 else None
+        counts = raw + 1.0                                                # add-one smoothing
+        self.marginal_ = counts / counts.sum()
+        block_tot = np.bincount(self.block_, weights=counts, minlength=nb)
+        self.share_ = counts / block_tot[self.block_]                     # P(level | block)
         return self
 
     def density(self, X, a):
+        """Probability of dose level a given X (a is snapped to the nearest observed level)."""
         a = np.asarray(a, float)
         code = np.clip(np.searchsorted(self.levels_, a), 0, len(self.levels_) - 1)
         left = np.clip(code - 1, 0, None)
         code = np.where(np.abs(self.levels_[left] - a) < np.abs(self.levels_[code] - a), left, code)
-        proba = self.clf_.predict_proba(X)
-        col = {c: j for j, c in enumerate(self.clf_.classes_)}
-        out = np.full(len(a), self.floor)
-        for c, j in col.items():
-            hit = code == c
-            out[hit] = proba[hit, j]
+        blk = self.block_[code]
+        out = np.ones(len(a))
+        if self.clf_ is not None:
+            proba = self.clf_.predict_proba(X)
+            out = np.zeros(len(a))
+            for j, c in enumerate(self.clf_.classes_):
+                hit = blk == c
+                out[hit] = proba[hit, j]
+        out = out * self.share_[code]
+        out = (1 - self.defensive) * out + self.defensive * self.marginal_[code]
         return np.maximum(out, self.floor)
+
+
+def _merge_rare(counts, min_count):
+    """Block id per level: adjacent levels are merged until every block has >= min_count rows."""
+    blocks = [[j] for j in range(len(counts))]
+    tot = lambda b: sum(counts[j] for j in b)           # noqa: E731
+    while len(blocks) > 1:
+        small = [i for i, b in enumerate(blocks) if tot(b) < min_count]
+        if not small:
+            break
+        i = min(small, key=lambda k: tot(blocks[k]))
+        if i == 0:
+            nbr = 1
+        elif i == len(blocks) - 1:
+            nbr = i - 1
+        else:
+            nbr = i - 1 if tot(blocks[i - 1]) <= tot(blocks[i + 1]) else i + 1
+        lo, hi = sorted((i, nbr))
+        blocks[lo:hi + 1] = [blocks[lo] + blocks[hi]]
+    out = np.empty(len(counts), int)
+    for k, b in enumerate(blocks):
+        out[b] = k
+    return out
 
 
 @dataclass
 class Nuisances:
+    """Cross-fitted nuisance values per row: mu = E[Y | X, A], pi = density of A given X,
+    varpi = marginal density of A, m = mu averaged over X at the row's dose."""
     mu: np.ndarray          # mu_hat(X_i, A_i)
     pi: np.ndarray          # pi_hat(A_i | X_i)
     varpi: np.ndarray       # varpi_hat_g(A_i)   (marginal density, within group g_i)

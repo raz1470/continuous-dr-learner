@@ -116,3 +116,19 @@ def sim_high_dim(n=3000, p=50, seed=0, weak_share=0.6, return_oracle=False, effe
         varpi = np.array([norm.pdf(a, m, s).mean() for a in A])
         return X, A, Y, f, varpi / pi
     return X, A, Y, f
+
+
+# --------------------------------------------------------------------------- DiD
+def sim_did(n=3000, seed=0, curve="inverted_u_centred"):
+    """Panel with a continuous dose. Units carry an unobserved, time-invariant trait that raises both
+    their dose and their outcome level; observed X drives the dose and the outcome trend.
+    Returns X, A, {t: Y_t for t in (-1, 0, 1)}, f, where the dose acts only at t = 1."""
+    rng = np.random.default_rng(seed)
+    f = CURVES[curve]
+    X = rng.normal(size=(n, 5))
+    alpha = rng.normal(size=n)                                          # unobserved
+    A = 0.5 * alpha + 0.4 * X[:, 0] + 0.3 * np.sin(2 * X[:, 1]) + 0.6 * rng.normal(size=n)
+    g = 1.0 * X[:, 0] + 0.5 * X[:, 2] ** 2                              # level
+    h = 0.6 * X[:, 1] + 0.3 * X[:, 0]                                   # trend, depends on X only
+    Y = {t: 1.5 * alpha + g + t * h + (t == 1) * f(A) + 0.7 * rng.normal(size=n) for t in (-1, 0, 1)}
+    return X, A, Y, f

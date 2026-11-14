@@ -210,6 +210,7 @@ select { font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px sol
   <a href="#confounders">4 · Many confounders</a>
   <a href="#method">5 · Intervals</a>
   <a href="#many">6 · Many curves</a>
+  <a href="#packages">7 · Existing packages</a>
   <a href="#faq">Questions</a>
   <a href="#together">Conclusion</a>
 </nav>
@@ -340,7 +341,7 @@ select { font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px sol
 
   <p>The goal of the weights is to make the data look as if doses had been handed out at random. A unit that got an unusual dose for someone like them is rare evidence, so it counts more. A unit that got the dose you'd expect counts less. There are two ways to build those weights.</p>
 
-  <p><strong>Density weights</strong> measure "unusual" directly. A boosted model predicts each unit's expected dose and how much it typically varies. From that you get the probability of the dose the unit actually received, and the weight is roughly one over it. The problem is the tails. When the model says a dose was very unlikely, the probability is close to zero, so the weight is huge. Small errors in a near-zero probability become very large errors in the weight. A handful of units end up dominating the curve.</p>
+  <p><strong>Density weights</strong> measure "unusual" directly. A boosted model predicts each unit's expected dose and how much it typically varies. From that you get the probability of the dose the unit actually received, and the weight is roughly one over it. The problem is the tails. When the model says a dose was very unlikely, the probability is close to zero, so the weight is huge. Small errors in a near-zero probability become very large errors in the weight. A handful of units end up dominating the curve. That's a problem with the boosted dose model rather than with density weights as such: as section 7 shows, a dose model that mixes smooth regressions with trees holds up much better.</p>
 
   <p><strong>Balancing weights</strong> skip the probability altogether. They target the property we actually want: after weighting, the dose shouldn't be predictable from the confounders. They find the set of weights that are as close to equal as possible, subject to the weighted dose being uncorrelated with every confounder (and its square) (<a href="https://doi.org/10.1515/jem-2021-0002" target="_blank" rel="noopener">Tübbicke 2022</a>). It's the same idea as reweighting a survey so its age and region mix matches the census. Because there's no probability to divide by, there's nothing to blow up.</p>
 
@@ -354,7 +355,7 @@ select { font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px sol
 
   <ul class="pts">
     <li><strong>S-learner:</strong> roughly the right shape, but too flat.</li>
-    <li><strong>DR with density weights:</strong> far off. A few units got doses the boosted model thought were nearly impossible, so their weights are huge and they drag the curve with them.</li>
+    <li><strong>DR with boosted density weights:</strong> far off. A few units got doses the boosted model thought were nearly impossible, so their weights are huge and they drag the curve with them.</li>
     <li><strong>DR with balancing weights:</strong> recovers the shape, but its 95% intervals are too narrow and miss the true curve more often than they should.</li>
   </ul>
 </section>
@@ -439,6 +440,31 @@ select { font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px sol
 
 
 
+<!-- 7 -->
+<section id="packages">
+  <h2>7. How does this compare with existing packages?</h2>
+
+  <p>Two packages already estimate a single doubly robust curve with the pseudo-outcome from section 1: <a href="https://github.com/ehkennedy/npcausal" target="_blank" rel="noopener">npcausal</a> in R, Kennedy's own implementation, and <a href="https://github.com/ronikobrosly/causal-curve" target="_blank" rel="noopener">causal-curve</a> in Python, which follows the same steps. They differ in the details. npcausal fits its nuisance models with SuperLearner, an ensemble that mixes smooth regressions with random forests, and picks how much to smooth the curve from the data. causal-curve uses gradient boosting and a fixed amount of smoothing. Neither cross-fits the nuisance models, and neither handles groups.</p>
+
+  <p>We ran both on the data from section 2 (5 confounders) and section 4 (50 confounders), 10 datasets each, alongside DR with balancing weights.</p>
+
+  <div class="fig">
+    <div class="fig-hdr">
+      <div class="fig-title">Error in the estimated curve, by package</div>
+    </div>
+    <div class="fig-body"><div class="legend"><span class="li"><svg width="20" height="4"><line x1="0" y1="2" x2="20" y2="2" stroke="#1baf7a" stroke-width="2.5" stroke-dasharray=""/></svg>npcausal (R)</span><span class="li"><svg width="20" height="4"><line x1="0" y1="2" x2="20" y2="2" stroke="#6b7280" stroke-width="2.5" stroke-dasharray=""/></svg>causal-curve (Python)</span><span class="li"><svg width="20" height="4"><line x1="0" y1="2" x2="20" y2="2" stroke="#2a78d6" stroke-width="2.5" stroke-dasharray=""/></svg>DR, balancing weights</span></div><svg class="chart" viewBox="0 0 680 260"><line x1="48" x2="670" y1="214.0" y2="214.0" stroke="#e5e7eb"/><text x="42" y="218.0" text-anchor="end" font-size="11" fill="#6b7280">0</text><line x1="48" x2="670" y1="146.8" y2="146.8" stroke="#e5e7eb"/><text x="42" y="150.8" text-anchor="end" font-size="11" fill="#6b7280">0.2</text><line x1="48" x2="670" y1="79.7" y2="79.7" stroke="#e5e7eb"/><text x="42" y="83.7" text-anchor="end" font-size="11" fill="#6b7280">0.4</text><line x1="48" x2="670" y1="12.5" y2="12.5" stroke="#e5e7eb"/><text x="42" y="16.5" text-anchor="end" font-size="11" fill="#6b7280">0.6</text><rect x="149.5" y="187.8" width="34.0" height="26.2" rx="3" fill="#1baf7a"><title>npcausal (R): 0.08</title></rect><text x="166.5" y="183.8" text-anchor="middle" font-size="10" fill="#6b7280">0.08</text><rect x="185.5" y="33.6" width="34.0" height="180.4" rx="3" fill="#6b7280"><title>causal-curve (Python): 0.54</title></rect><text x="202.5" y="29.6" text-anchor="middle" font-size="10" fill="#6b7280">0.54</text><rect x="221.5" y="173.4" width="34.0" height="40.6" rx="3" fill="#2a78d6"><title>DR, balancing weights: 0.12</title></rect><text x="238.5" y="169.4" text-anchor="middle" font-size="10" fill="#6b7280">0.12</text><text x="203.5" y="230" text-anchor="middle" font-size="11" fill="#111827">5 confounders</text><rect x="460.5" y="153.2" width="34.0" height="60.8" rx="3" fill="#1baf7a"><title>npcausal (R): 0.18</title></rect><text x="477.5" y="149.2" text-anchor="middle" font-size="10" fill="#6b7280">0.18</text><rect x="496.5" y="112.9" width="34.0" height="101.1" rx="3" fill="#6b7280"><title>causal-curve (Python): 0.30</title></rect><text x="513.5" y="108.9" text-anchor="middle" font-size="10" fill="#6b7280">0.30</text><rect x="532.5" y="169.3" width="34.0" height="44.7" rx="3" fill="#2a78d6"><title>DR, balancing weights: 0.13</title></rect><text x="549.5" y="165.3" text-anchor="middle" font-size="10" fill="#6b7280">0.13</text><text x="514.5" y="230" text-anchor="middle" font-size="11" fill="#111827">50 confounders</text><text x="14" y="113.0" text-anchor="middle" font-size="11" fill="#6b7280" transform="rotate(-90 14 113.0)">RMSE of the curve</text><line x1="48" x2="670" y1="214" y2="214" stroke="#6b7280"/></svg></div>
+    <p class="fig-cap">Root mean squared error between the estimated and the true curve, averaged over 10 simulated datasets per setting. Curves are centred.</p>
+  </div>
+
+  <ul class="pts">
+    <li><strong>5 confounders:</strong> npcausal is the most accurate, and its 95% intervals cover the truth 90% of the time. Its mix of smooth models suits smooth data like this.</li>
+    <li><strong>50 confounders:</strong> balancing weights are the most accurate, with npcausal close behind. Both sets of intervals fall short (83% and 77% coverage), which is the problem section 5 deals with.</li>
+    <li><strong>causal-curve</strong> trails both, and its intervals are around 25 times wider than the others', so they always cover the truth but tell you little.</li>
+  </ul>
+
+  <p>If you need one curve for the whole population and have a handful of confounders, npcausal is a good choice. What the approach here adds is the many-confounders case (balancing weights and calibrated intervals) and many curves at once (section 6).</p>
+</section>
+
 <!-- FAQ -->
 <section id="faq">
   <h2>Frequently asked questions</h2>
@@ -480,7 +506,7 @@ select { font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px sol
   <ul class="pts">
     <li><strong>Shape.</strong> A single slope can't describe a curve. On an inverted U it can come out near zero, as if the dose didn't matter. Estimate the whole curve instead.</li>
     <li><strong>Robustness.</strong> The default partialling-out score breaks when the treatment model is wrong; the IV-type score fixes that, but only for θ. The DR pseudo-outcome survives either model being wrong, for the whole curve.</li>
-    <li><strong>Many confounders.</strong> With dozens of confounders, the S-learner flattens the curve and density weights blow up. Balancing weights hold up.</li>
+    <li><strong>Many confounders.</strong> With dozens of confounders, the S-learner flattens the curve and density weights from a boosted dose model blow up. Balancing weights hold up.</li>
     <li><strong>Intervals.</strong> With many confounders the default band misses, because the curve is slightly biased. Calibrate it with a plasmode simulation on your own data.</li>
     <li><strong>Many curves.</strong> Looping over groups gives noise for the small ones. Partial pooling gives every group a curve, shrinks the small ones toward their parent, and lets the big ones speak for themselves.</li>
   </ul>

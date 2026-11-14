@@ -1,0 +1,7 @@
+setting,method,rmse,cover,width
+p5,"DR, balancing weights",0.121,0.642,0.236
+p5,"DR, density weights",0.188,0.935,0.72
+p5,causal-curve TMLE,0.537,1.0,6.245
+p50,"DR, balancing weights",0.133,0.83,0.317
+p50,"DR, density weights",3.428,0.87,9.675
+p50,causal-curve TMLE,0.301,1.0,8.581

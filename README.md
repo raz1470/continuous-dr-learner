@@ -38,7 +38,7 @@ new, _    = model.curve(a_grid, ("r0", "unseen"))   # unseen store -> its region
 
 Inputs:
 - `X` can be an array or a DataFrame (non-numeric columns are integer-coded). Group codes are appended automatically (`add_group_codes=True`) so the nuisance models see the groups.
-- Weights: for a continuous `A` the default is `GPS()`, Kennedy et al.'s density-based weights. Their intervals had close to nominal coverage in our simulations.
+- Weights: for a continuous `A` the default is `GPS()`, Kennedy et al.'s density-based weights, with a boosted model for the dose. With a few confounders its intervals had close to nominal coverage in our simulations. **With many confounders the boosted dose model breaks** (see below): for a population curve use `gps=BalancingWeights()`; for group curves, where balancing weights aren't available, use a steadier dose model, e.g. `GPS(mean_model=default_dose_model(), scale_model=default_dose_model())` (ridge + boosting stack, from `drcurves.riesz`).
 - `gps=RieszWeights()` (automatic debiasing) learns the weight varpi(a)/pi(a|x) directly by minimising the Riesz loss with boosted trees; no density is estimated. With 50 confounders, density weights made DR worse than plug-in, while learned weights beat it (Sim 5). **But** the intervals don't account for the bias learned weights leave behind: 95% bands covered about half the time on the Sim 1 data. Use it for the point estimate when there are many confounders, and check intervals with `bootstrap_curves`.
 - `BalancingWeights()`: entropy-balancing weights that decorrelate the dose from the covariates (and their squares). Best with many covariates; population curve only (`groups=None`).
 - `StackedWeights()` (experimental) mixes the two, choosing the mix by held-out Riesz loss. That loss is noisy, dominated by a few extreme weights, so it isn't the default.
@@ -94,7 +94,7 @@ draws = model.draws(a_grid, path, n_draws=4000)             # curves for any oth
 | 50 | balancing | 0.08 | 0.14 | 1.09 | 72% | 0% |
 
 - **Few covariates:** density weights (the default) give honest intervals.
-- **Many covariates:** density weights break, and learned (Riesz) weights carry too much bias. **`BalancingWeights()`** (entropy balancing for a continuous dose; in-sample, population curve only) is clearly best: lowest error, and standard errors that match the real spread. The bands still under-cover, because a small bias remains; richer balancing bases, prognostic scores, removing the weight cap and undersmoothing didn't remove it.
+- **Many covariates:** density weights from the default boosted dose model break, and learned (Riesz) weights carry too much bias. **`BalancingWeights()`** (entropy balancing for a continuous dose; in-sample, population curve only) is clearly best: lowest error, and standard errors that match the real spread. The bands still under-cover, because a small bias remains; richer balancing bases, prognostic scores, removing the weight cap and undersmoothing didn't remove it.
 - **So calibrate on your own data.** `coverage_check` keeps your real X and doses and simulates outcomes from a known curve, then reports the critical value that gave 95% coverage:
 
 ```python
@@ -175,6 +175,19 @@ Runtime is about 45 minutes on two cores, mostly simulations 2 and 3.
 - Everything assumes unconfoundedness: X must explain how doses were assigned.
 - Report curves over the observed dose range. Thin overlap means large weights; weights are capped at the 99th percentile by default (`max_weight_quantile`), which trades a little bias for a lot of variance.
 - Analytic intervals treat the nuisance models as fixed; see the coverage table above.
+
+## Compared with existing packages
+
+`experiments/compare_causal_curve.py` and `experiments/compare_npcausal.py` (needs R with npcausal and SuperLearner): one population curve, 10 datasets per setting, Sim 1 data (5 confounders) and Sim 5 data (50 confounders). RMSE of the centred curve / pointwise coverage of the 95% band.
+
+| | 5 confounders | 50 confounders |
+|---|---|---|
+| [npcausal](https://github.com/ehkennedy/npcausal) (R, Kennedy) | **0.08** / 90% | 0.18 / 77% |
+| [causal-curve](https://github.com/ronikobrosly/causal-curve) TMLE (Python) | 0.54 / 100% (bands ~25× wider) | 0.30 / 100% (bands ~27× wider) |
+| this package, `BalancingWeights()` | 0.12 / 64% | **0.13** / 83% |
+| this package, default `GPS()` | 0.19 / 94% | 3.43 / 87% |
+
+For one population curve with a handful of confounders, npcausal is the better tool. This package is for many confounders (balancing weights, `coverage_check`) and for many curves pooled across a hierarchy, which neither package offers.
 
 ## References
 

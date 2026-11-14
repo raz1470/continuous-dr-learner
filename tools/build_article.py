@@ -116,6 +116,14 @@ practice_panel = line_panel(g2, [
 
 # ============================================================ calibrated band
 s6 = pd.read_csv(RES / "sim6_intervals_summary.csv")
+cmp = pd.read_csv(RES / "compare_packages_summary.csv").set_index(["setting", "method"])
+CMP = [("npcausal (R)", "npcausal (R)", AQUA), ("causal-curve TMLE", "causal-curve (Python)", GREY),
+       ("DR, balancing weights", "DR, balancing weights", BLUE)]
+cmp_bars = grouped_bars(["5 confounders", "50 confounders"],
+                        [(lab, col, [cmp.loc[(st, key), "rmse"] for st in ("p5", "p50")]) for key, lab, col in CMP],
+                        ylabel="RMSE of the curve")
+LEG9 = legend([(lab, col, "") for _, lab, col in CMP])
+def cv(st, key): return pct(cmp.loc[(st, key), "cover"])
 s6bal = s6[(s6.p == 50) & (s6.weights == "balancing")].iloc[0]
 cb = json.loads((RES / "sim5_calibrated_band.json").read_text())
 sys.path.insert(0, str(ROOT / "src"))
@@ -263,6 +271,7 @@ select {{ font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px so
   <a href="#confounders">4 · Many confounders</a>
   <a href="#method">5 · Intervals</a>
   <a href="#many">6 · Many curves</a>
+  <a href="#packages">7 · Existing packages</a>
   <a href="#faq">Questions</a>
   <a href="#together">Conclusion</a>
 </nav>
@@ -393,7 +402,7 @@ select {{ font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px so
 
   <p>The goal of the weights is to make the data look as if doses had been handed out at random. A unit that got an unusual dose for someone like them is rare evidence, so it counts more. A unit that got the dose you'd expect counts less. There are two ways to build those weights.</p>
 
-  <p><strong>Density weights</strong> measure "unusual" directly. A boosted model predicts each unit's expected dose and how much it typically varies. From that you get the probability of the dose the unit actually received, and the weight is roughly one over it. The problem is the tails. When the model says a dose was very unlikely, the probability is close to zero, so the weight is huge. Small errors in a near-zero probability become very large errors in the weight. A handful of units end up dominating the curve.</p>
+  <p><strong>Density weights</strong> measure "unusual" directly. A boosted model predicts each unit's expected dose and how much it typically varies. From that you get the probability of the dose the unit actually received, and the weight is roughly one over it. The problem is the tails. When the model says a dose was very unlikely, the probability is close to zero, so the weight is huge. Small errors in a near-zero probability become very large errors in the weight. A handful of units end up dominating the curve. That's a problem with the boosted dose model rather than with density weights as such: as section 7 shows, a dose model that mixes smooth regressions with trees holds up much better.</p>
 
   <p><strong>Balancing weights</strong> skip the probability altogether. They target the property we actually want: after weighting, the dose shouldn't be predictable from the confounders. They find the set of weights that are as close to equal as possible, subject to the weighted dose being uncorrelated with every confounder (and its square) (<a href="https://doi.org/10.1515/jem-2021-0002" target="_blank" rel="noopener">Tübbicke 2022</a>). It's the same idea as reweighting a survey so its age and region mix matches the census. Because there's no probability to divide by, there's nothing to blow up.</p>
 
@@ -407,7 +416,7 @@ select {{ font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px so
 
   <ul class="pts">
     <li><strong>S-learner:</strong> roughly the right shape, but too flat.</li>
-    <li><strong>DR with density weights:</strong> far off. A few units got doses the boosted model thought were nearly impossible, so their weights are huge and they drag the curve with them.</li>
+    <li><strong>DR with boosted density weights:</strong> far off. A few units got doses the boosted model thought were nearly impossible, so their weights are huge and they drag the curve with them.</li>
     <li><strong>DR with balancing weights:</strong> recovers the shape, but its 95% intervals are too narrow and miss the true curve more often than they should.</li>
   </ul>
 </section>
@@ -492,6 +501,31 @@ select {{ font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px so
 
 
 
+<!-- 7 -->
+<section id="packages">
+  <h2>7. How does this compare with existing packages?</h2>
+
+  <p>Two packages already estimate a single doubly robust curve with the pseudo-outcome from section 1: <a href="https://github.com/ehkennedy/npcausal" target="_blank" rel="noopener">npcausal</a> in R, Kennedy's own implementation, and <a href="https://github.com/ronikobrosly/causal-curve" target="_blank" rel="noopener">causal-curve</a> in Python, which follows the same steps. They differ in the details. npcausal fits its nuisance models with SuperLearner, an ensemble that mixes smooth regressions with random forests, and picks how much to smooth the curve from the data. causal-curve uses gradient boosting and a fixed amount of smoothing. Neither cross-fits the nuisance models, and neither handles groups.</p>
+
+  <p>We ran both on the data from section 2 (5 confounders) and section 4 (50 confounders), {int(cmp.loc[("p5", "npcausal (R)"), "n"])} datasets each, alongside DR with balancing weights.</p>
+
+  <div class="fig">
+    <div class="fig-hdr">
+      <div class="fig-title">Error in the estimated curve, by package</div>
+    </div>
+    <div class="fig-body">{LEG9}{cmp_bars}</div>
+    <p class="fig-cap">Root mean squared error between the estimated and the true curve, averaged over {int(cmp.loc[("p5", "npcausal (R)"), "n"])} simulated datasets per setting. Curves are centred.</p>
+  </div>
+
+  <ul class="pts">
+    <li><strong>5 confounders:</strong> npcausal is the most accurate, and its 95% intervals cover the truth {cv("p5", "npcausal (R)")} of the time. Its mix of smooth models suits smooth data like this.</li>
+    <li><strong>50 confounders:</strong> balancing weights are the most accurate, with npcausal close behind. Both sets of intervals fall short ({cv("p50", "DR, balancing weights")} and {cv("p50", "npcausal (R)")} coverage), which is the problem section 5 deals with.</li>
+    <li><strong>causal-curve</strong> trails both, and its intervals are around 25 times wider than the others', so they always cover the truth but tell you little.</li>
+  </ul>
+
+  <p>If you need one curve for the whole population and have a handful of confounders, npcausal is a good choice. What the approach here adds is the many-confounders case (balancing weights and calibrated intervals) and many curves at once (section 6).</p>
+</section>
+
 <!-- FAQ -->
 <section id="faq">
   <h2>Frequently asked questions</h2>
@@ -533,7 +567,7 @@ select {{ font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px so
   <ul class="pts">
     <li><strong>Shape.</strong> A single slope can't describe a curve. On an inverted U it can come out near zero, as if the dose didn't matter. Estimate the whole curve instead.</li>
     <li><strong>Robustness.</strong> The default partialling-out score breaks when the treatment model is wrong; the IV-type score fixes that, but only for θ. The DR pseudo-outcome survives either model being wrong, for the whole curve.</li>
-    <li><strong>Many confounders.</strong> With dozens of confounders, the S-learner flattens the curve and density weights blow up. Balancing weights hold up.</li>
+    <li><strong>Many confounders.</strong> With dozens of confounders, the S-learner flattens the curve and density weights from a boosted dose model blow up. Balancing weights hold up.</li>
     <li><strong>Intervals.</strong> With many confounders the default band misses, because the curve is slightly biased. Calibrate it with a plasmode simulation on your own data.</li>
     <li><strong>Many curves.</strong> Looping over groups gives noise for the small ones. Partial pooling gives every group a curve, shrinks the small ones toward their parent, and lets the big ones speak for themselves.</li>
   </ul>

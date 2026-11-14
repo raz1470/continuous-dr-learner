@@ -98,7 +98,7 @@ them apart (RMSE of the curve; placebo = largest deviation of the pre-period cur
 
 | | Adjust for X | Lagged outcome | DiD | Placebo |
 |---|---|---|---|---|
-| A stable hidden trait drives the dose | 1.06 | 0.30 | **0.04** | 0.03 (flat) |
+| A stable hidden trait drives the dose | 1.06 | 0.29 | **0.04** | 0.03 (flat) |
 | The dose responds to past outcomes | 0.24 | **0.05** | 0.16 | 0.16 (not flat) |
 
 A clearly non-flat placebo is a reason to prefer the lagged design, or to report both.
@@ -142,11 +142,11 @@ where the 95% band contains the truth.
 
 | | 5 confounders | 50 confounders | Harder data |
 |---|---|---|---|
-| **drcurves**, default | **0.06** / 77% | **0.05** / 94% | **0.23** / 89% |
-| drcurves, `BalancingWeights()` | 0.07 / 89% | 0.05 / 91% | 0.36 / 19% |
+| **drcurves**, default | **0.06** / 75% | **0.04** / 93% | **0.25** / 75% |
+| drcurves, `BalancingWeights()` | 0.07 / 88% | 0.05 / 90% | 0.39 / 18% |
 | [npcausal](https://github.com/ehkennedy/npcausal) (R) | 0.08 / 90% | 0.18 / 77% | 0.30 / 13% |
 | [causal-curve](https://github.com/ronikobrosly/causal-curve) (Python) | 0.54 / 100% | 0.30 / 100% | 0.44 / 100% |
-| drcurves with boosting alone | 0.19 / 94% | 3.43 / 87% | 2.81 / 97% |
+| drcurves with boosting alone | 0.19 / 94% | 3.43 / 87% | 3.07 / 97% |
 
 The harder data has thresholds, interactions and heavy-tailed noise; there, boosting alone gave the
 best outcome model (0.18 with balancing weights, but 43% coverage). No learner wins everywhere,
@@ -172,7 +172,7 @@ pseudo-outcome's mean, given the dose, is the true curve if either nuisance mode
   trends for DiD. Double robustness protects against a wrong model, not a missing variable.
 - Report curves over the observed dose range. Weights are capped at the 99th percentile by default
   (`max_weight_quantile`), trading a little bias for a lot of variance.
-- The 95% bands are slightly optimistic: in our simulations they contained the true curve 77-92% of
+- The 95% bands are slightly optimistic: in our simulations they contained the true curve 75-93% of
   the time (stores 81%), mostly because capping the weights leaves a small bias. Check with
   `coverage_check` before relying on them; details in [`docs/research.md`](docs/research.md).
 - Experimental, not supported: `drcurves.riesz` (learned Riesz weights).

@@ -13,9 +13,8 @@ from pathlib import Path
 import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src")); sys.path.insert(0, str(ROOT / "experiments"))
-from drcurves import GPS, HierarchicalDoseResponse, cross_fit_nuisances, pseudo_outcomes  # noqa
+from drcurves import GPS, HierarchicalDoseResponse, cross_fit_nuisances, default_model, pseudo_outcomes  # noqa
 from drcurves.simulate import CURVES, sim_did as sim_did_pkg  # noqa
-from compare_stacked import stack  # noqa
 warnings.filterwarnings("ignore")
 REPS = int(sys.argv[1]) if len(sys.argv) > 1 else 5
 BUDGET = float(sys.argv[2]) if len(sys.argv) > 2 and not sys.argv[2].startswith("--") else 1e9
@@ -34,8 +33,7 @@ def sim_did(n=3000, seed=0):
 
 
 def fit(X, A, y, rep, g):
-    nu = cross_fit_nuisances(X, A, y, stack(), GPS(mean_model=stack(), scale_model=stack(), random_state=rep),
-                             random_state=rep)
+    nu = cross_fit_nuisances(X, A, y, default_model(random_state=rep), GPS(random_state=rep), random_state=rep)
     return HierarchicalDoseResponse().fit(A, pseudo_outcomes(nu, y, "dr")).curve(g, centre=True)
 
 

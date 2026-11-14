@@ -526,7 +526,7 @@ select {{ font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px so
   <h2>Frequently asked questions</h2>
 
   <details class="faq"><summary>Can I trust the intervals?</summary>
-    <p>Mostly, but treat them as slightly optimistic. With the stacked default, the 95% bands contained the true curve 77-92% of the time across our simulations: a little short, because capping the weights trades a small bias for a lot of stability. When the nuisance models are off they are too narrow, because a band doesn't account for bias. Check on your own data: keep your real confounders and doses, simulate an outcome with a known curve, rerun the whole pipeline 20 to 30 times, and count how often the band contains it. This is a plasmode simulation (<a href="https://doi.org/10.1016/j.csda.2013.10.018" target="_blank" rel="noopener">Franklin et al. 2014</a>), and if the bands fall short it tells you how much to widen them.</p>
+    <p>Mostly, but treat them as slightly optimistic. With the stacked default, the 95% bands contained the true curve 75-93% of the time across our simulations: a little short, because capping the weights trades a small bias for a lot of stability. When the nuisance models are off they are too narrow, because a band doesn't account for bias. Check on your own data: keep your real confounders and doses, simulate an outcome with a known curve, rerun the whole pipeline 20 to 30 times, and count how often the band contains it. This is a plasmode simulation (<a href="https://doi.org/10.1016/j.csda.2013.10.018" target="_blank" rel="noopener">Franklin et al. 2014</a>), and if the bands fall short it tells you how much to widen them.</p>
   </details>
 
   <details class="faq"><summary>When shouldn't I use this?</summary>

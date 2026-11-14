@@ -10,7 +10,7 @@ from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import SplineTransformer, StandardScaler
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
-from drcurves import GPS, BalancingWeights, HierarchicalDoseResponse, cross_fit_nuisances, pseudo_outcomes  # noqa
+from drcurves import GPS, BalancingWeights, HierarchicalDoseResponse, cross_fit_nuisances, default_model, pseudo_outcomes  # noqa
 from drcurves.nuisance import Nuisances  # noqa
 from drcurves.simulate import sim_nonlinear, sim_high_dim  # noqa
 warnings.filterwarnings("ignore")
@@ -46,8 +46,8 @@ for rep in range(REPS):
             X, A, Y, f = sim_high_dim(n=3000, p=50, seed=900 + rep)
         X = np.asarray(X); g = np.linspace(*np.quantile(A, [0.05, 0.95]), 40); t = f(g) - f(g).mean()
         out = []
-        nu = cross_fit_nuisances(X, A, Y, stack(), GPS(mean_model=stack(), scale_model=stack(), random_state=rep),
-                                 random_state=rep)
+        # the package defaults, exactly as shipped
+        nu = cross_fit_nuisances(X, A, Y, default_model(random_state=rep), GPS(random_state=rep), random_state=rep)
         est, se = HierarchicalDoseResponse().fit(A, pseudo_outcomes(nu, Y, "dr")).curve(g, centre=True)
         out.append(dict(setting=setting, rep=rep, method="DR, stacked, density weights", **score(est, se, t)))
         nw = cross_fit_nuisances(X, A, Y, None, BalancingWeights(), random_state=rep)

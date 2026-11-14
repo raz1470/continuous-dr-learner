@@ -1,0 +1,1 @@
+[{"setting": "p50", "rep": 4, "method": "DR, stacked, density weights", "rmse": 0.11784281507865105, "cover": 0.875, "width": 0.3229244486558342}, {"setting": "p50", "rep": 4, "method": "DR, stacked, balancing weights", "rmse": 0.0428692268699934, "cover": 0.9, "width": 0.1615718010837549}]

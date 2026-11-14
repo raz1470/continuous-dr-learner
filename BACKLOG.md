@@ -25,7 +25,7 @@
 - [x] DiD simulation with all three: levels, DiD, lagged outcome (stable trait vs selection on
       past outcomes).
 - [x] Rerun `sim4_uncertainty` and `sim6_intervals` with the stacked default (docs/research.md).
-- [ ] Bands under-cover a little (77-92%) from capping bias; an adaptive cap or a bias correction could close it.
+- [ ] Bands under-cover a little (75-93%) from capping bias; an adaptive cap or a bias correction could close it.
 
 ## Packaging
 - [ ] CI (GitHub Actions): tests on Python 3.10–3.13, latest sklearn/pandas.

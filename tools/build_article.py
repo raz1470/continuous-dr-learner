@@ -430,7 +430,7 @@ select {{ font: inherit; font-size: .85rem; padding: .3rem .5rem; border: 1px so
     <li><strong>Stacked:</strong> all three recover the curve. The spline regression captures the smooth relationships that trees can only approximate with steps.</li>
   </ul>
 
-  <p>In practice: density weights, the default, work well with the stack; if you use boosting alone, switch to balancing weights. That doesn't make the stack better everywhere: section 6 tests it on harder data, where trees have the edge.</p>
+  <p>In practice: with the stack, density weights work well; if you use boosting alone, use balancing weights instead. That doesn't make the stack better everywhere: section 6 tests it on harder data, where trees have the edge.</p>
 </section>
 
 <!-- 5 -->

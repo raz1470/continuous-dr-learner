@@ -12,6 +12,8 @@ from .balance import BalancingWeights
 from .check import coverage_check
 from .did import placebo_check
 
+__version__ = "0.1.0"
+
 # Supported public API. Everything else (drcurves.riesz, drcurves.simulate, prepare_X) is
 # experimental or internal and may change without notice before 1.0.
 __all__ = [
@@ -85,36 +87,96 @@ def fit_dose_response(X, A, Y, outcome_model=None, gps=None, groups=None, poolin
                       cov_type="bayes", max_weight_quantile=0.99, add_group_codes=True,
                       max_levels=30, y_pre=None, design=None, nuisance_var=True, n_jobs=None,
                       random_state=0):
-    """One call: cross-fitted nuisances -> DR pseudo-outcomes -> pooled splines.
+    """Fit doubly robust dose-response curves in one call.
 
-    X        : covariates (array or DataFrame; categorical columns are coded).
-    A, Y     : dose and outcome.
-    groups   : None (one population curve); a DataFrame with one column (flat
-               groups, each shrunk toward the global curve); or several columns
-               top -> bottom (e.g. ["region", "store"]). Levels must be nested.
-    outcome_model : sklearn regressor for E[Y | X, A]. None uses default_model(), a
-               spline-ridge + boosting stack.
-    gps      : the weight model. None picks DiscreteGPS when A has <= max_levels
-               distinct values, otherwise GPS() (density-based weights, Kennedy
-               et al. 2017). BalancingWeights() is an alternative for a
-               population curve (groups=None).
-    cluster  : cluster ids for the robust covariance types.
-    fold_groups : ids kept together in cross-fitting (e.g. customer id).
-    cov_type : "bayes" (default), "robust_bayes" or "sandwich".
-    n_jobs   : parallel jobs for the default models (None = 1, -1 = all cores).
-    nuisance_var : add the variance from estimating m(a), the outcome model averaged over X
-               (Kennedy et al. 2017), to the "bayes" and "robust_bayes" bands. Costs one extra
-               prediction per row and dose-grid point.
-    y_pre    : the outcome before the dose (same units). With it, choose `design`:
-               "did" (default): fit on the change Y - y_pre. Removes stable unobserved traits,
-                   but comparing doses needs strong parallel trends: units on different doses
-                   would have followed the same path had their doses been equal.
-               "lagged": keep Y and adjust for y_pre as a confounder. Right when the dose
-                   responds to past outcomes rather than to a stable trait.
-               The two bracket the truth when you don't know which applies; check "did" with
-               placebo_check on two pre-periods.
-    Returns a fitted HierarchicalDoseResponse with .nuisances_, .pseudo_outcomes_
-    and .diagnostics().
+    Cross-fits the outcome model and the dose model, builds the doubly robust
+    pseudo-outcomes of Kennedy et al. (2017) and smooths them against the dose
+    with penalised splines, pooled across ``groups`` if given.
+
+    Parameters
+    ----------
+    X : array-like or DataFrame
+        Confounders. Non-numeric DataFrame columns are coded; missing values
+        are allowed.
+    A : array-like
+        The dose (treatment), one value per row.
+    Y : array-like
+        The outcome.
+    outcome_model : sklearn regressor, optional
+        Model for E[Y | X, A]. None uses :func:`default_model`, a spline-ridge
+        and boosting stack.
+    gps : GPS, DiscreteGPS or BalancingWeights, optional
+        The weight model. None picks :class:`DiscreteGPS` when A has at most
+        ``max_levels`` distinct values, otherwise :class:`GPS` (density-based
+        weights, Kennedy et al. 2017). :class:`BalancingWeights` is an
+        alternative for a population curve (``groups=None``).
+    groups : DataFrame, optional
+        None for one population curve; a DataFrame with one column for flat
+        groups, each shrunk toward the global curve; or several columns, top to
+        bottom (e.g. ``df[["region", "store"]]``). Levels must be nested.
+    pooling : {"partial", "none", "complete"}, default "partial"
+        See :class:`HierarchicalDoseResponse`.
+    n_folds : int, default 5
+        Cross-fitting folds.
+    n_basis : int, default 10
+        Number of B-spline basis functions for the curve.
+    cluster : array-like, optional
+        Cluster ids for the robust covariance types.
+    fold_groups : array-like, optional
+        Ids kept together in cross-fitting (e.g. customer id).
+    cov_type : {"bayes", "robust_bayes", "sandwich"}, default "bayes"
+        Default covariance for intervals.
+    max_weight_quantile : float, default 0.99
+        Weights are capped at this quantile, trading a little bias for a lot
+        of variance.
+    add_group_codes : bool, default True
+        Add the group labels to X so the nuisance models can use them.
+    max_levels : int, default 30
+        A dose with at most this many distinct values is treated as discrete.
+    y_pre : array-like, optional
+        The outcome before the dose, in the same units. With it, choose
+        ``design``.
+    design : {"did", "lagged"}, optional
+        Only used with ``y_pre`` (default "did").
+
+        - ``"did"``: fit on the change ``Y - y_pre``. Removes stable unobserved
+          traits, but comparing doses needs strong parallel trends: units on
+          different doses would have followed the same path had their doses
+          been equal.
+        - ``"lagged"``: keep Y and adjust for ``y_pre`` as a confounder. Right
+          when the dose responds to past outcomes rather than to a stable trait.
+
+        The two bracket the truth when you don't know which applies; check
+        ``"did"`` with :func:`placebo_check` on two pre-periods.
+    nuisance_var : bool, default True
+        Add the variance from estimating m(a), the outcome model averaged over
+        X (Kennedy et al. 2017), to the "bayes" and "robust_bayes" bands. Costs
+        one extra prediction per row and dose-grid point.
+    n_jobs : int, optional
+        Parallel jobs for the default models (None = 1, -1 = all cores).
+    random_state : int, default 0
+        Seed for the folds and the default models.
+
+    Returns
+    -------
+    HierarchicalDoseResponse
+        The fitted curves, with ``.nuisances_``, ``.pseudo_outcomes_`` and
+        ``.diagnostics()`` (overlap and fit checks worth reading first).
+
+    See Also
+    --------
+    placebo_check : Checks the parallel-trends assumption behind ``design="did"``.
+    coverage_check : Checks the bands on data shaped like yours.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from drcurves import fit_dose_response
+    >>> from drcurves.simulate import sim_nonlinear
+    >>> X, A, Y, truth = sim_nonlinear(n=3000, seed=1)
+    >>> model = fit_dose_response(X, A, Y)
+    >>> grid = np.linspace(*np.quantile(A, [0.05, 0.95]), 50)
+    >>> est, lo, hi, _ = model.band(grid)
     """
     Y = np.asarray(Y, float)
     A = np.asarray(A, float)

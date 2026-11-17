@@ -109,7 +109,6 @@ class RieszWeights(BaseEstimator):
         va_m = None if mX is None else mX[val]
         Zj, Zp = self._stack(X[~val], A[~val], None if g is None else g[~val], rng, tr_m)
         Vj, Vp = self._stack(X[val], A[val], None if g is None else g[val], rng, va_m)
-        k = self.n_shuffles
         Z = np.vstack([Zj, Zp])
         is_j = np.r_[np.ones(len(Zj), bool), np.zeros(len(Zp), bool)]
         sw = np.where(is_j, 1.0 / len(Zj), 1.0 / len(Zp))

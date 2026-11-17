@@ -27,11 +27,32 @@ from sklearn.preprocessing import SplineTransformer
 
 
 class BalancingWeights:
-    """Entropy-balancing weights for a continuous dose.
+    """Entropy-balancing weights for a continuous dose (Tübbicke 2022).
 
-    basis   : "quadratic" (h(X) = standardised X and X^2) or "linear".
-    dose_powers : powers of the standardised dose used in g(A) (default 1, 2).
-    ridge   : penalty on the dual variables; larger = smoother weights, looser balance.
+    Chooses weights close to uniform such that, after weighting, the dose is
+    uncorrelated with functions of the confounders. An alternative to
+    :class:`GPS` for a population curve (``groups=None``); it helped with many
+    confounders in our simulations.
+
+    Parameters
+    ----------
+    basis : {"quadratic", "linear", "spline"}, default "quadratic"
+        Balance terms h(X): standardised X, plus X^2 (quadratic) or splines.
+    dose_powers : tuple of int, default (1, 2)
+        Powers of the standardised dose used in g(A).
+    ridge : float, default 0.01
+        Penalty on the dual variables; larger means smoother weights and
+        looser balance.
+    max_weight : float, default 50.0
+        Cap on any single weight.
+    scores : bool, default False
+        Also balance cross-fitted predictions of the dose (and of the outcome,
+        if given) and their squares: the directions along which confounding
+        acts.
+    score_model : sklearn regressor, optional
+        Model for those predictions.
+    n_knots : int, default 4
+        Knots for ``basis="spline"``.
     """
     is_ratio = True
     in_sample = True
@@ -91,7 +112,24 @@ class BalancingWeights:
         return C / np.maximum(C.std(0), 1e-12)
 
     def fit_weights(self, X, A, groups=None, Y=None):
-        """Weights for every row, chosen so the weighted dose is uncorrelated with the balance terms."""
+        """Weights that make the weighted dose uncorrelated with the balance terms.
+
+        Parameters
+        ----------
+        X : array-like
+            Confounders (numeric).
+        A : array-like
+            Dose.
+        groups : None
+            Must be None: balancing weights support one population only.
+        Y : array-like, optional
+            Outcome, used only with ``scores=True``.
+
+        Returns
+        -------
+        ndarray
+            One weight per row.
+        """
         if groups is not None:
             raise NotImplementedError("BalancingWeights supports a single population (groups=None); "
                                       "use GPS() for group curves.")

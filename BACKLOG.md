@@ -28,15 +28,19 @@
 - [ ] Bands under-cover a little (75-93%) from capping bias; an adaptive cap or a bias correction could close it.
 
 ## Packaging
-- [ ] CI (GitHub Actions): tests on Python 3.10–3.13, latest sklearn/pandas.
-- [ ] Pin minimum versions in `pyproject.toml`; check optional deps (doubleml, causal-curve) are
-      only needed for experiments.
-- [ ] Version 0.1.0, CHANGELOG, tagged release; trusted publishing to PyPI from GitHub Actions.
+- [x] CI (GitHub Actions, `ci.yml`): lint, tests on Python 3.10 with the oldest supported deps and
+      3.13 with the latest, and a clean-install run of the README quick start.
+- [x] Minimum versions in `pyproject.toml` (tested in CI); doubleml and causal-curve are only in the
+      `experiments` extra.
+- [x] Version 0.1.0 and CHANGELOG; trusted publishing to PyPI on a `v*` tag (`publish.yml`).
+- [ ] Tag `v0.1.0` and publish (set up the PyPI pending publisher first; see `publish.yml`).
 - [ ] Faster tests (smaller n) so CI runs in a couple of minutes.
 
 ## Docs
 - [x] README: lead with what it's for (pick your assumption, get dose-response curves, many groups,
       many confounders) and when to use something else.
 - [x] Two worked examples (notebooks): one population curve; group curves with a hierarchy.
-- [x] Docstrings for every public function; a short API page (`docs/api.md`, generated).
+- [x] Numpydoc docstrings for every public function and class.
+- [x] Docs site (Sphinx, as in bayesian_vecm): user guide, rendered examples, research, API, and the
+      article at /walkthrough.html; deployed to GitHub Pages by `docs.yml`.
 - [ ] Link the TDS article once it's live.

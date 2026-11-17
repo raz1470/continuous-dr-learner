@@ -47,27 +47,59 @@ def _default_weights(cat=None):
 def coverage_check(X, A, Y, groups=None, outcome_model=None, weights=None, n_reps=20,
                    shape="inverted_u", effect_size=None, level_points=40, n_folds=5,
                    add_group_codes=True, random_state=0, verbose=True):
-    """Plasmode coverage check of the curve's 95% intervals on your data.
+    """Plasmode check of the curve's 95% intervals on your own data.
 
-    X, A, Y   : your covariates, dose and outcome (Y is used only to build h and e).
-    groups    : optional hierarchy (DataFrame, top -> bottom). If given, curves are
-                fitted with partial pooling and every group's curve is scored
-                against the common true shape (balancing weights are skipped,
-                as they support one population only).
-    outcome_model : default: default_model() (spline-ridge + boosting stack).
-    weights   : dict name -> callable(seed) returning a weight model; default
-                density (GPS) and balancing.
-    shape     : "inverted_u", "saturating", "linear" or a callable of the
-                standardised dose z = (a - median) / sd.
-    effect_size : peak-to-trough size of the true curve; default 0.5 * sd(Y).
+    Keeps your confounders and doses, replaces the outcome with a simulated
+    one whose dose-response curve is known, reruns the whole pipeline
+    ``n_reps`` times and counts how often the intervals contain the truth
+    (Franklin et al. 2014).
 
-    Returns (summary DataFrame, per-replication DataFrame). Read `pointwise`
-    and `simultaneous` (share of 95% intervals containing the truth), `se_ratio`
-    (reported s.e. / actual spread; < 1 means overconfident) and `abs_bias`.
-    `critical_pointwise` / `critical_simultaneous` are the critical values that
-    gave 95% coverage on your data: pass one to model.band(..., critical=...)
-    for calibrated intervals (compare with 1.96 and the usual sup-t value).
-    With few replications these are noisy; use n_reps >= 30 for reporting.
+    Parameters
+    ----------
+    X, A, Y : array-like
+        Your confounders, dose and outcome. Y is used only to build the
+        simulated outcome's baseline and noise.
+    groups : DataFrame, optional
+        Hierarchy, top to bottom. If given, curves are fitted with partial
+        pooling and every group's curve is scored against the common true
+        shape (balancing weights are skipped, as they support one population
+        only).
+    outcome_model : sklearn regressor, optional
+        Default :func:`default_model`.
+    weights : dict, optional
+        ``name -> callable(seed)`` returning a weight model. Default density
+        (:class:`GPS`) and balancing (:class:`BalancingWeights`).
+    n_reps : int, default 20
+        Replications. With few, the calibrated critical values are noisy; use
+        30 or more for reporting.
+    shape : {"inverted_u", "saturating", "linear"} or callable, default "inverted_u"
+        The true curve, as a function of the standardised dose
+        ``z = (a - median) / sd``.
+    effect_size : float, optional
+        Peak-to-trough size of the true curve; default ``0.5 * sd(Y)``.
+    level_points : int, default 40
+        Grid points at which coverage is scored.
+    n_folds : int, default 5
+        Cross-fitting folds.
+    add_group_codes : bool, default True
+        Add the group labels to X.
+    random_state : int, default 0
+        Seed.
+    verbose : bool, default True
+        Print progress.
+
+    Returns
+    -------
+    summary : DataFrame
+        One row per weight model. Read ``pointwise`` and ``simultaneous``
+        (share of 95% intervals containing the truth), ``se_ratio`` (reported
+        standard error / actual spread; below 1 means overconfident) and
+        ``abs_bias``. ``critical_pointwise`` and ``critical_simultaneous`` are
+        the critical values that gave 95% coverage on your data: pass one to
+        ``model.band(..., critical=...)`` for calibrated intervals (compare
+        with 1.96 and the usual sup-t value).
+    reps : DataFrame
+        The same measures for every replication.
     """
     from . import _code_columns, prepare_X
     from .models import default_model

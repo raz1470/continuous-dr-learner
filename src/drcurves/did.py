@@ -3,24 +3,41 @@ import numpy as np
 
 
 def placebo_check(X, A, y_pre, y_prepre, main=None, a_grid=None, groups=None, path=None, **fit_kwargs):
-    """Fit the curve on the change between two pre-periods, where the dose can't have acted yet.
+    """Fit the curve on the change between two pre-periods, before the dose could act.
 
-    Under (strong) parallel trends the placebo curve is flat. Judge it by its *size* relative to
-    the effect you care about, not by whether its band excludes zero: with a well-fitted model the
-    band is narrow enough to flag deviations too small to matter.
+    Under (strong) parallel trends the placebo curve is flat. Judge it by its
+    size relative to the effect you care about, not by whether its band
+    excludes zero: with a well-fitted model the band is narrow enough to flag
+    deviations too small to matter.
 
-    X, A        : covariates and the (later) dose.
-    y_pre       : outcome in the last period before the dose.
-    y_prepre    : outcome in an earlier period before the dose.
-    main        : optional fitted model of the real effect (e.g. fit_dose_response(..., y_pre=...)),
-                  used to express the placebo's size relative to the effect.
-    a_grid      : doses at which to compare; default the 5th to 95th percentile of A.
-    groups, path: optional hierarchy and the group path whose curves to compare.
-    fit_kwargs  : passed to fit_dose_response (models, weights, n_jobs, ...).
+    Parameters
+    ----------
+    X, A : array-like
+        Confounders and the (later) dose.
+    y_pre : array-like
+        Outcome in the last period before the dose.
+    y_prepre : array-like
+        Outcome in an earlier period before the dose.
+    main : HierarchicalDoseResponse, optional
+        Fitted model of the real effect (e.g. ``fit_dose_response(...,
+        y_pre=...)``), used to express the placebo's size relative to the
+        effect.
+    a_grid : array-like, optional
+        Doses at which to compare; default the 5th to 95th percentile of A.
+    groups : DataFrame, optional
+        Hierarchy, top to bottom.
+    path : tuple, optional
+        Group path whose curves to compare.
+    **fit_kwargs
+        Passed to :func:`fit_dose_response` (models, weights, ``n_jobs``, ...).
 
-    Returns a dict: grid, placebo curve and s.e. (centred), max_abs (largest deviation from flat),
-    effect_range (range of the main curve, if given), relative (max_abs / effect_range) and
-    share_band_excludes_zero (for reference only).
+    Returns
+    -------
+    dict
+        ``grid``; the centred placebo curve and its standard errors;
+        ``max_abs`` (largest deviation from flat); ``effect_range`` (range of
+        the main curve, if given); ``relative`` (``max_abs / effect_range``;
+        small is good) and ``share_band_excludes_zero`` (for reference only).
     """
     from . import fit_dose_response
     A = np.asarray(A, float)

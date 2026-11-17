@@ -18,14 +18,36 @@ from sklearn.preprocessing import OneHotEncoder, SplineTransformer, StandardScal
 
 def default_model(categorical_features=None, n_knots=5, max_iter=500, learning_rate=0.05, cv=2, n_jobs=None,
                   random_state=0):
-    """Spline-ridge + boosting stack, usable for the outcome model and the dose mean/scale models.
+    """Spline-ridge and boosting stack, the default for every nuisance model.
 
-    categorical_features : column indices to one-hot encode in the spline member and treat as
-        categorical in boosting (e.g. group codes). Other columns get cubic B-splines.
-    cv : folds used to choose the blend. 2 was as accurate as 3 in our simulations and a third faster.
-    n_jobs : fit the two members in parallel (passed to StackingRegressor).
-    Missing values: the spline member imputes the column mean; boosting handles NaN natively.
-    Boosting stops early once a 10% validation split stops improving, so max_iter is a ceiling.
+    Used for the outcome model and for the dose mean and scale models. The
+    spline member imputes missing values with the column mean; boosting
+    handles NaN natively. Boosting stops early once a 10% validation split
+    stops improving, so ``max_iter`` is a ceiling.
+
+    Parameters
+    ----------
+    categorical_features : list of int, optional
+        Column indices to one-hot encode in the spline member and treat as
+        categorical in boosting (e.g. group codes). Other columns get cubic
+        B-splines.
+    n_knots : int, default 5
+        Knots per spline.
+    max_iter : int, default 500
+        Maximum boosting iterations.
+    learning_rate : float, default 0.05
+        Boosting learning rate.
+    cv : int, default 2
+        Folds used to choose the blend. 2 was as accurate as 3 in our
+        simulations and a third faster.
+    n_jobs : int, optional
+        Fit the two members in parallel (passed to ``StackingRegressor``).
+    random_state : int, default 0
+        Seed for boosting.
+
+    Returns
+    -------
+    sklearn.ensemble.StackingRegressor
     """
     cat = list(categorical_features) if categorical_features is not None else []
     if cat:

@@ -1,20 +1,57 @@
 [build-system]
-requires = ["setuptools>=64"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "drcurves"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Doubly robust, partially pooled dose-response curves for continuous treatments"
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "MIT" }
-dependencies = ["numpy", "scipy>=1.8", "pandas", "scikit-learn>=1.2"]
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Ryan O'Sullivan" }]
+keywords = [
+    "causal inference", "dose-response", "continuous treatment", "doubly robust",
+    "double machine learning", "hierarchical model", "partial pooling", "difference-in-differences",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Mathematics",
+]
+# Lower bounds are the oldest versions tested in CI (the "oldest" job in ci.yml).
+dependencies = ["numpy>=1.23", "scipy>=1.8", "pandas>=1.5", "scikit-learn>=1.2"]
 
 [project.optional-dependencies]
 plot = ["matplotlib>=3.5"]
 experiments = ["doubleml>=0.9", "matplotlib>=3.5", "causal-curve", "playwright"]
-dev = ["pytest", "matplotlib>=3.5", "nbconvert", "ipykernel"]
+dev = ["pytest", "ruff", "matplotlib>=3.5", "nbconvert", "ipykernel"]
+docs = [
+    "sphinx>=7",
+    "pydata-sphinx-theme>=0.15",
+    "numpydoc>=1.6",
+    "myst-nb>=1.0",
+    "sphinx-copybutton>=0.5",
+    "matplotlib>=3.5",
+]
+
+[project.urls]
+Homepage = "https://github.com/raz1470/continuous-dr-learner"
+Documentation = "https://raz1470.github.io/continuous-dr-learner/"
+Walkthrough = "https://raz1470.github.io/continuous-dr-learner/walkthrough.html"
+Repository = "https://github.com/raz1470/continuous-dr-learner"
+Issues = "https://github.com/raz1470/continuous-dr-learner/issues"
+Changelog = "https://github.com/raz1470/continuous-dr-learner/blob/main/CHANGELOG.md"
+
+[tool.setuptools.dynamic]
+version = { attr = "drcurves.__version__" }
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -23,3 +60,11 @@ where = ["src"]
 pythonpath = ["src"]
 markers = ["slow: long-running tests of experimental features (run with -m slow)"]
 addopts = "-m 'not slow'"
+
+[tool.ruff]
+line-length = 110
+extend-exclude = ["experiments", "tools/build_article.py", "tools/svg.py"]
+
+[tool.ruff.lint]
+# Errors only (syntax and pyflakes): style isn't enforced on this codebase.
+select = ["E9", "F"]

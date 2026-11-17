@@ -21,7 +21,8 @@ def test_gps_density_integrates_to_one():
     gps = GPS(mean_model=LinearRegression(), heteroscedastic=False).fit(X, A)
     grid = np.linspace(-8, 8, 4001)
     dens = gps.density(np.repeat(X[:1], len(grid), 0), grid)
-    assert abs(np.trapezoid(dens, grid) - 1) < 0.05
+    trapezoid = getattr(np, "trapezoid", None) or np.trapz   # np.trapezoid is numpy >= 2.0
+    assert abs(trapezoid(dens, grid) - 1) < 0.05
 
 
 def test_dr_curve_recovers_quadratic():
@@ -120,7 +121,6 @@ def test_bootstrap_runs():
 
 # ---------------------------------------------------------------- real-data robustness
 def test_discrete_dose_uses_discrete_gps_and_recovers_curve():
-    from drcurves import DiscreteGPS
     rng = np.random.default_rng(5)
     n = 1500          # small enough that the top and bottom levels are rare (regression test)
     X = rng.normal(size=(n, 2))

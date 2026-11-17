@@ -1,4 +1,6 @@
-# Interval coverage with the stacked default
+# Research
+
+How often the 95% bands contain the true curve, in simulations with a known answer.
 
 Monte Carlo coverage of 95% intervals (share containing the truth), all with `default_model()` for
 every nuisance model. Older results with boosting alone are in `results/cache_boosted/`.

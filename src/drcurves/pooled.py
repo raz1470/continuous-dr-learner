@@ -63,16 +63,40 @@ class _Factor:
 class HierarchicalDoseResponse:
     """Partially pooled dose-response curves.
 
+    The second stage of :func:`fit_dose_response`: regresses pseudo-outcomes on
+    the dose with penalised B-splines. With groups, each group's spline
+    coefficients are the sum of its ancestors' deviations, and ridge penalties
+    on the deviations shrink small groups toward their parent (tuned by GCV).
+
     Parameters
     ----------
-    n_basis : number of B-spline basis functions (reduced automatically when the
+    n_basis : int, default 10
+        Number of B-spline basis functions (reduced automatically when the
         dose takes only a few distinct values).
-    pooling : "partial" (GCV-tuned shrinkage), "none" (each group on its own,
-        only smoothness penalised) or "complete" (one curve for everybody).
-    cov_type : default covariance for intervals: "bayes" (posterior covariance
-        of the equivalent Bayesian model, as used by mgcv), "robust_bayes"
-        (heteroscedasticity-robust data term + prior term) or "sandwich"
-        (ignores penalty bias; overconfident under shrinkage).
+    pooling : {"partial", "none", "complete"}, default "partial"
+        ``"partial"``: GCV-tuned shrinkage. ``"none"``: each group on its own,
+        only smoothness penalised. ``"complete"``: one curve for everybody.
+    lam_grid : array-like, optional
+        Candidate penalties for GCV; default 9 values from 1e-2 to 1e6.
+    n_sweeps : int, default 2
+        Coordinate-descent sweeps over the penalties.
+    gcv_gamma : float, default 1.4
+        GCV inflation factor (Kim & Gu 2004); above 1 favours smoother fits,
+        which matters because pseudo-outcomes are noisy.
+    cov_type : {"bayes", "robust_bayes", "sandwich"}, default "bayes"
+        Default covariance for intervals. ``"bayes"`` is the posterior
+        covariance of the equivalent Bayesian model, as used by mgcv;
+        ``"robust_bayes"`` uses a heteroscedasticity-robust data term plus the
+        prior term; ``"sandwich"`` ignores penalty bias and is overconfident
+        under shrinkage.
+    lam_int : float, default 1e-4
+        Small ridge on each group's overall level.
+    dense_max : int, default 300
+        Up to this many coefficients the fit is solved densely and exactly;
+        above it, with a sparse LU factorisation.
+    n_probes : int, default 40
+        Probes for the Hutchinson estimate of the effective degrees of freedom
+        in large models.
     """
 
     def __init__(self, n_basis=10, pooling="partial", lam_grid=None, n_sweeps=2, gcv_gamma=1.4,
@@ -154,15 +178,30 @@ class HierarchicalDoseResponse:
     def fit(self, a, y, groups=None, cluster=None, penalties=None, nuisance_term=None):
         """Fit the pooled curves.
 
-        groups    : DataFrame (or Series) with one column per level, top -> bottom;
-                    one column = flat groups; None = one curve.
-        cluster   : optional cluster ids for the robust ("sandwich" /
-                    "robust_bayes") covariance, e.g. customer id when customers
-                    repeat. Don't cluster at the level whose curves you report.
-        penalties : optional (lam_smooth, [lam_level, ...]) to skip GCV tuning.
-        nuisance_term : optional (a_grid, q) from cross_fit_nuisances(..., nuisance_var=True).
-                    Adds the variance from estimating m(a) (Kennedy et al. 2017) to the
-                    "bayes" and "robust_bayes" covariances.
+        Parameters
+        ----------
+        a : array-like
+            Dose for each row.
+        y : array-like
+            Pseudo-outcome (or outcome) for each row.
+        groups : DataFrame or Series, optional
+            One column per level, top to bottom; one column for flat groups; None
+            for one curve.
+        cluster : array-like, optional
+            Cluster ids for the robust (``"sandwich"`` and ``"robust_bayes"``)
+            covariance, e.g. customer id when customers repeat. Don't cluster at
+            the level whose curves you report.
+        penalties : tuple, optional
+            ``(lam_smooth, [lam_level, ...])`` to skip GCV tuning.
+        nuisance_term : tuple, optional
+            ``(a_grid, q)`` from ``cross_fit_nuisances(..., nuisance_var=True)``.
+            Adds the variance from estimating m(a) (Kennedy et al. 2017) to the
+            "bayes" and "robust_bayes" covariances.
+
+        Returns
+        -------
+        HierarchicalDoseResponse
+            self.
         """
         a = np.asarray(a, float)
         y = np.asarray(y, float)
@@ -216,12 +255,15 @@ class HierarchicalDoseResponse:
                             trial[l] = v
                             return self._solve(lam_s, trial)[0]
                         lams[l] = min(self.lam_grid, key=crit)
-            edges = (self.lam_grid.min(), self.lam_grid.max())
+            # Only the lower edge is a problem: the curve may be under-smoothed or groups not pooled
+            # enough. The upper edge means a straight line (smoothness) or complete pooling (levels),
+            # both legitimate fits, so it isn't worth a warning on every fit.
+            low = self.lam_grid.min()
             tuned = [lam_s] + (lams if tune_levels else [])
-            if any(v in edges for v in tuned):
-                warnings.warn(f"A tuned penalty hit the edge of lam_grid {edges} "
-                              f"(lam_smooth={lam_s:g}, levels={lams}). Consider widening lam_grid.",
-                              stacklevel=2)
+            if any(v <= low for v in tuned):
+                warnings.warn(f"A tuned penalty hit the lower edge of lam_grid ({low:g}): the curve may "
+                              f"be under-smoothed (lam_smooth={lam_s:g}, levels={[float(v) for v in lams]}). "
+                              "Consider a lam_grid with smaller values.", stacklevel=2)
         self.lam_smooth_, self.lam_levels_ = lam_s, lams
         self.gcv_, self.coef_, self._f, self.edf_, self._P = self._solve(lam_s, lams)
 
@@ -324,16 +366,33 @@ class HierarchicalDoseResponse:
 
     # --------------------------------------------------------------- predict
     def curve(self, a_grid, path=None, centre=False, cov_type=None, predictive=True):
-        """Curve and pointwise s.e. for a group path, e.g. ("north", "store_17").
+        """Curve and pointwise standard errors for a group path.
 
-        path=None returns the global block. Under partial pooling that is a
-        shrinkage-weighted "typical group" curve, not the population average
-        E[Y(a)]; for the population curve fit with groups=None.
-        Unknown levels fall back to their parent (a new store gets its region's
-        curve). With predictive=True (default) the band for an unseen group also
-        includes the spread between groups at that level, drawn from the fitted
-        random-effects prior, so a new store's band is wider than its region's.
-        centre=True returns the shape (curve minus its mean over a_grid).
+        Parameters
+        ----------
+        a_grid : array-like
+            Doses at which to evaluate the curve.
+        path : tuple, optional
+            Group path, top to bottom, e.g. ``("north", "store_17")``. None returns
+            the global block. Under partial pooling that is a shrinkage-weighted
+            "typical group" curve, not the population average E[Y(a)]; for the
+            population curve fit with ``groups=None``. Unknown levels fall back to
+            their parent (a new store gets its region's curve).
+        centre : bool, default False
+            Return the shape: the curve minus its mean over ``a_grid``.
+        cov_type : str, optional
+            Override the model's ``cov_type``.
+        predictive : bool, default True
+            For an unseen group, also include the spread between groups at that
+            level, drawn from the fitted random-effects prior, so a new store's
+            band is wider than its region's.
+
+        Returns
+        -------
+        est : ndarray
+            The curve at ``a_grid``.
+        se : ndarray
+            Pointwise standard errors.
         """
         M, idx = self._rows(a_grid, path, centre)
         est = M @ self.coef_[idx]
@@ -347,8 +406,30 @@ class HierarchicalDoseResponse:
         return est, np.sqrt(np.maximum(var, 0))
 
     def draws(self, a_grid, path=None, n_draws=4000, centre=False, cov_type=None, seed=0, predictive=True):
-        """Curves drawn from N(coef, cov): array (n_draws, len(a_grid)). For unseen groups,
-        predictive=True adds the between-group spread (see curve)."""
+        """Curves drawn from N(coef, cov).
+
+        Parameters
+        ----------
+        a_grid : array-like
+            Doses at which to evaluate the curves.
+        path : tuple, optional
+            Group path; see :meth:`curve`.
+        n_draws : int, default 4000
+            Number of curves.
+        centre : bool, default False
+            Centre each curve over ``a_grid``.
+        cov_type : str, optional
+            Override the model's ``cov_type``.
+        seed : int, default 0
+            Random seed.
+        predictive : bool, default True
+            For unseen groups, add the between-group spread (see :meth:`curve`).
+
+        Returns
+        -------
+        ndarray
+            Array of shape ``(n_draws, len(a_grid))``.
+        """
         M, idx = self._rows(a_grid, path, centre)
         C = M @ self._cov(idx, cov_type) @ M.T
         if predictive:
@@ -360,14 +441,40 @@ class HierarchicalDoseResponse:
 
     def band(self, a_grid, path=None, level=0.95, simultaneous=True, centre=False,
              cov_type=None, n_draws=10000, seed=0, critical=None):
-        """Confidence band; returns (est, lo, hi, critical_value).
+        """Confidence band for a curve.
 
-        simultaneous=True uses a sup-t critical value (the 95th percentile of
-        the largest standardised deviation across the grid), so the band holds
-        for the whole curve at once - what you need for statements like "the
-        curve peaks between x and y".
-        critical: use this critical value instead (e.g. the calibrated value
-        from coverage_check), multiplying the standard errors."""
+        Parameters
+        ----------
+        a_grid : array-like
+            Doses at which to evaluate the band.
+        path : tuple, optional
+            Group path; see :meth:`curve`.
+        level : float, default 0.95
+            Coverage level.
+        simultaneous : bool, default True
+            Use a sup-t critical value (the 95th percentile of the largest
+            standardised deviation across the grid), so the band holds for the
+            whole curve at once. That's what you need for statements like "the
+            curve peaks between x and y". False gives pointwise bands.
+        centre : bool, default False
+            Band for the shape (curve minus its mean over ``a_grid``).
+        cov_type : str, optional
+            Override the model's ``cov_type``.
+        n_draws : int, default 10000
+            Draws used for the sup-t critical value.
+        seed : int, default 0
+            Random seed.
+        critical : float, optional
+            Use this critical value instead, multiplying the standard errors
+            (e.g. the calibrated value from :func:`coverage_check`).
+
+        Returns
+        -------
+        est, lo, hi : ndarray
+            The curve and the band's lower and upper limits.
+        critical : float
+            The critical value used.
+        """
         est, se = self.curve(a_grid, path, centre, cov_type)
         if critical is not None:      # e.g. calibrated by coverage_check on your data
             return est, est - critical * se, est + critical * se, float(critical)
@@ -380,10 +487,29 @@ class HierarchicalDoseResponse:
         return est, est - crit * se, est + crit * se, crit
 
     def contrast(self, a_from, a_to, path=None, path_to=None, cov_type=None):
-        """theta_{path_to}(a_to) - theta_{path}(a_from) and its s.e.
+        """Difference between two points on the curves, with its standard error.
 
-        Same path: the effect of moving the dose from a_from to a_to.
-        Different paths, same dose: how two groups differ at that dose.
+        Returns theta_path_to(a_to) - theta_path(a_from). On the same path this is
+        the effect of moving the dose from ``a_from`` to ``a_to``. On different
+        paths at the same dose, it's how two groups differ at that dose.
+
+        Parameters
+        ----------
+        a_from, a_to : float
+            The two doses.
+        path : tuple, optional
+            Group path for ``a_from``; see :meth:`curve`.
+        path_to : tuple, optional
+            Group path for ``a_to``; defaults to ``path``.
+        cov_type : str, optional
+            Override the model's ``cov_type``.
+
+        Returns
+        -------
+        est : float
+            The difference.
+        se : float
+            Its standard error.
         """
         path_to = path if path_to is None else path_to
         M1, i1 = self._rows([a_from], path)
@@ -398,11 +524,32 @@ class HierarchicalDoseResponse:
              truth=None, rug=True, ax=None, cov_type=None):
         """Plot one or more curves with their bands (needs matplotlib).
 
-        paths  : group paths to draw, e.g. [None] or [("north",), ("north", "s17")].
-        band   : "pointwise", "simultaneous" or None.
-        truth  : optional callable a -> true curve, drawn dashed (for simulations).
-        rug    : tick marks along the x axis at the observed doses.
-        Returns the matplotlib Axes.
+        Parameters
+        ----------
+        a_grid : array-like, optional
+            Doses to plot; default the fitted dose range.
+        paths : sequence of tuples, default (None,)
+            Group paths to draw, e.g. ``[None]`` or ``[("north",), ("north", "s17")]``.
+        labels : sequence of str, optional
+            Legend labels, one per path.
+        band : {"pointwise", "simultaneous", None}, default "pointwise"
+            Which band to shade.
+        level : float, default 0.95
+            Band coverage level.
+        centre : bool, default False
+            Plot shapes (each curve minus its mean).
+        truth : callable, optional
+            ``a -> true curve``, drawn dashed (for simulations).
+        rug : bool, default True
+            Tick marks along the x axis at the observed doses.
+        ax : matplotlib Axes, optional
+            Axes to draw on.
+        cov_type : str, optional
+            Override the model's ``cov_type``.
+
+        Returns
+        -------
+        matplotlib.axes.Axes
         """
         import matplotlib.pyplot as plt
         if a_grid is None:
@@ -443,9 +590,35 @@ class HierarchicalDoseResponse:
 
     def optimal_dose(self, a_grid, path=None, level=0.95, n_draws=4000, maximize=True,
                      cov_type=None, seed=0):
-        """Dose maximising (or minimising) the curve on a_grid, with an interval
-        from the argmax across draws. `at_edge` = share of draws whose optimum is
-        at an end of a_grid: if large, the optimum may lie outside the data."""
+        """Dose that maximises (or minimises) the curve, with an interval.
+
+        The interval comes from the argmax across curves drawn from the model.
+
+        Parameters
+        ----------
+        a_grid : array-like
+            Candidate doses.
+        path : tuple, optional
+            Group path; see :meth:`curve`.
+        level : float, default 0.95
+            Interval level.
+        n_draws : int, default 4000
+            Number of curve draws.
+        maximize : bool, default True
+            False finds the minimum.
+        cov_type : str, optional
+            Override the model's ``cov_type``.
+        seed : int, default 0
+            Random seed.
+
+        Returns
+        -------
+        dict
+            ``dose`` (the optimum of the fitted curve), ``lo`` and ``hi`` (the
+            interval), ``at_edge`` (share of draws whose optimum is at an end of
+            ``a_grid``; if large, the optimum may lie outside the data) and
+            ``draws`` (the optimum in each draw).
+        """
         a_grid = np.asarray(a_grid, float)
         d = self.draws(a_grid, path, n_draws, False, cov_type, seed)
         pick = np.argmax if maximize else np.argmin

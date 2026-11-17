@@ -1,0 +1,134 @@
+# GitHub Actions CI workflow.
+#
+# What runs when:
+#
+# | Job           | Pull request                                | Push to main |
+# |---------------|---------------------------------------------|--------------|
+# | lint          | always (seconds)                            | always       |
+# | tests         | when code changes: oldest and latest deps   | always       |
+# | clean install | when the package or README changes          | always       |
+#
+# "Code changes" means src/, tests/, pyproject.toml or this file. A pull request that
+# only touches docs, examples or the article runs lint alone (plus the docs build in
+# docs.yml). The repository ruleset only needs to require "CI passed".
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    name: What changed
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+      package: ${{ steps.filter.outputs.package }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            code:
+              - "src/**"
+              - "tests/**"
+              - "pyproject.toml"
+              - ".github/workflows/ci.yml"
+            package:
+              - "src/**"
+              - "pyproject.toml"
+              - "README.md"
+              - "tools/ci/**"
+              - ".github/workflows/ci.yml"
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Ruff (errors only; see [tool.ruff] in pyproject.toml)
+        run: uvx ruff check .
+
+  tests:
+    name: Tests (Python ${{ matrix.python-version }}, ${{ matrix.deps }} deps)
+    needs: changes
+    if: github.event_name == 'push' || needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # The lower bounds in pyproject.toml: keep these in step with them.
+          - python-version: "3.10"
+            deps: oldest
+            constraints: "numpy==1.23.5 scipy==1.8.1 pandas==1.5.3 scikit-learn==1.2.2 matplotlib==3.5.3"
+          - python-version: "3.13"
+            deps: latest
+            constraints: ""
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install
+        run: |
+          uv venv
+          if [ -n "${{ matrix.constraints }}" ]; then
+            echo "${{ matrix.constraints }}" | tr ' ' '\n' > constraints.txt
+            uv pip install -c constraints.txt -e ".[plot]" pytest
+          else
+            uv pip install --upgrade -e ".[plot]" pytest
+          fi
+          uv pip list
+      - name: Pytest
+        run: uv run --no-sync pytest -q
+
+  # Build the wheel, install it into a clean environment with only the runtime
+  # dependencies (plus matplotlib), and run what a new user runs first: the README's
+  # quick start and "Many groups" blocks. The test job installs the repo in editable
+  # mode, so it can't see a file missing from the wheel.
+  clean-install:
+    name: Clean install smoke test
+    needs: changes
+    if: github.event_name == 'push' || needs.changes.outputs.package == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Build the wheel and sdist
+        run: uv build
+      - name: Check the package metadata
+        run: uvx twine check --strict dist/*
+      - name: Install the wheel into a clean environment
+        run: |
+          uv venv --python 3.12 /tmp/clean
+          uv pip install --python /tmp/clean/bin/python "$(ls dist/*.whl)[plot]"
+      - name: README quick start
+        working-directory: /tmp
+        run: /tmp/clean/bin/python $GITHUB_WORKSPACE/tools/ci/readme_quickstart.py $GITHUB_WORKSPACE/README.md
+
+  # One check for the repository ruleset to require. Skipped jobs report under their
+  # unexpanded names, so requiring them by name blocks docs-only pull requests; this
+  # job always runs and fails only if a job it needs failed or was cancelled.
+  ci-passed:
+    name: CI passed
+    needs: [lint, tests, clean-install]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check the jobs it depends on
+        run: |
+          echo '${{ toJSON(needs) }}'
+          if [ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" = "true" ]; then
+            echo "A required job failed or was cancelled."
+            exit 1
+          fi

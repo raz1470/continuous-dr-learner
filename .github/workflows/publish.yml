@@ -1,0 +1,76 @@
+# Publishes to PyPI when a version tag (v0.1.0, v0.2.0, ...) is pushed.
+#
+# Uses trusted publishing, so no API token is stored. One-off setup on pypi.org:
+# Account -> Publishing -> Add a new pending publisher, with
+#   PyPI project name: drcurves
+#   Owner: raz1470
+#   Repository name: continuous-dr-learner
+#   Workflow name: publish.yml
+#   Environment name: pypi
+# and in this repo: Settings -> Environments -> New environment "pypi".
+#
+# To try it first on TestPyPI, run the workflow by hand (Actions tab, "Run workflow");
+# that needs the same pending publisher on test.pypi.org with environment "testpypi".
+
+name: Publish
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Check the tag matches the package version
+        if: github.event_name == 'push'
+        run: |
+          version=$(grep -E '^__version__' src/drcurves/__init__.py | cut -d'"' -f2)
+          if [ "v$version" != "${GITHUB_REF_NAME}" ]; then
+            echo "Tag ${GITHUB_REF_NAME} doesn't match __version__ = $version"
+            exit 1
+          fi
+      - name: Build the wheel and sdist
+        run: uv build
+      - name: Check the package metadata
+        run: uvx twine check --strict dist/*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  testpypi:
+    name: Publish to TestPyPI
+    if: github.event_name == 'workflow_dispatch'
+    needs: build
+    runs-on: ubuntu-latest
+    environment: testpypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+
+  pypi:
+    name: Publish to PyPI
+    if: github.event_name == 'push'
+    needs: build
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1

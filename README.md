@@ -18,13 +18,24 @@ slope, from observational data:
   boosting, which in our simulations beat boosting alone and the existing packages.
 
 It accompanies the article *Estimating Continuous Treatment Effects: Doubly Robust Dose-Response
-Curves*.
+Curves*. Early release: the API may change before 1.0.
+
+## Resources
+
+| | |
+|---|---|
+| 📚 [Documentation](https://raz1470.github.io/continuous-dr-learner/) | User guide, examples and API reference |
+| 📖 [Walkthrough](https://raz1470.github.io/continuous-dr-learner/walkthrough.html) | The article: why one slope isn't enough, and the method step by step on simulated data |
+| 📓 [One curve](https://github.com/raz1470/continuous-dr-learner/blob/main/examples/01_one_curve.ipynb) | Fit with the defaults and read the results |
+| 🏪 [Curves for many groups](https://github.com/raz1470/continuous-dr-learner/blob/main/examples/02_group_curves.ipynb) | A curve per store, pooled across regions |
+| 🎯 [Checking the bands](https://raz1470.github.io/continuous-dr-learner/guide/checking_bands.html) | `coverage_check` on your own data |
+| 🔬 [Research](https://raz1470.github.io/continuous-dr-learner/research.html) | How often the 95% bands contain the true curve |
+| 📝 [Changelog](https://github.com/raz1470/continuous-dr-learner/blob/main/CHANGELOG.md) | What changed in each release |
 
 ## Install
 
 ```bash
-pip install drcurves            # coming soon; for now:
-pip install git+https://github.com/raz1470/continuous-dr-learner
+pip install drcurves
 pip install "drcurves[plot]"    # adds matplotlib for model.plot()
 ```
 
@@ -93,7 +104,7 @@ pc["relative"]      # largest placebo deviation / range of the real curve; small
 Comparing doses under DiD needs *strong* parallel trends: units on different doses would have
 followed the same path had their doses been equal (Callaway, Goodman-Bacon & Sant'Anna 2024).
 
-In simulation (`experiments/sim_did.py`), each design wins in its own world, and the placebo tells
+In simulation ([`experiments/sim_did.py`](https://github.com/raz1470/continuous-dr-learner/blob/main/experiments/sim_did.py)), each design wins in its own world, and the placebo tells
 them apart (RMSE of the curve; placebo = largest deviation of the pre-period curve from flat):
 
 | | Adjust for X | Lagged outcome | DiD | Placebo |
@@ -174,7 +185,7 @@ pseudo-outcome's mean, given the dose, is the true curve if either nuisance mode
   (`max_weight_quantile`), trading a little bias for a lot of variance.
 - The 95% bands are slightly optimistic: in our simulations they contained the true curve 75-93% of
   the time (stores 81%), mostly because capping the weights leaves a small bias. Check with
-  `coverage_check` before relying on them; details in [`docs/research.md`](docs/research.md).
+  `coverage_check` before relying on them; details on the [research page](https://raz1470.github.io/continuous-dr-learner/research.html).
 - Experimental, not supported: `drcurves.riesz` (learned Riesz weights).
 
 ## Reproduce the article
@@ -193,8 +204,8 @@ python tools/build_article.py      # -> article/index.html
 pytest                             # add -m slow for the experimental tests
 ```
 
-Interval coverage studies are in [`docs/research.md`](docs/research.md);
-the API is summarised in [`docs/api.md`](docs/api.md); open work is in [`BACKLOG.md`](BACKLOG.md).
+Interval coverage studies are on the [research page](https://raz1470.github.io/continuous-dr-learner/research.html); the API is in the
+[documentation](https://raz1470.github.io/continuous-dr-learner/api/index.html); open work is in [`BACKLOG.md`](https://github.com/raz1470/continuous-dr-learner/blob/main/BACKLOG.md).
 
 ## References
 
@@ -207,4 +218,4 @@ the API is summarised in [`docs/api.md`](docs/api.md); open work is in [`BACKLOG
 - Marra & Wood (2012). Coverage properties of confidence intervals for GAM components. *Scand. J. Statistics* 39(1).
 - Eilers & Marx (1996). Flexible smoothing with B-splines and penalties. *Statistical Science* 11(2).
 
-MIT licence.
+[MIT licence](https://github.com/raz1470/continuous-dr-learner/blob/main/LICENSE).

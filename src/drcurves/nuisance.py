@@ -17,28 +17,35 @@ from joblib import Parallel, delayed
 
 from .models import default_classifier, default_model
 from sklearn.base import BaseEstimator, clone
-from sklearn.ensemble import HistGradientBoostingRegressor
 from sklearn.model_selection import KFold, cross_val_predict
-from sklearn.ensemble import HistGradientBoostingClassifier
 import pandas as pd
 
 
 class GPS(BaseEstimator):
-    """Location-scale model for the conditional density of a continuous treatment.
+    """Location-scale model for the density of a continuous dose given X.
 
-        A = m(X) + s(X) * e,   e ~ f  (f estimated by KDE or assumed Gaussian)
+    Models ``A = m(X) + s(X) * e``, with the density of ``e`` estimated by KDE
+    or assumed Gaussian. Gives density-based weights (Kennedy et al. 2017).
 
     Parameters
     ----------
-    mean_model : sklearn regressor for E[A | X]. Default: drcurves.models.default_model,
-        a spline-ridge + boosting stack (boosting alone gave unstable weights in our simulations).
-    scale_model : sklearn regressor for E[|A - m(X)| | X]. Ignored if
-        ``heteroscedastic=False``. (Absolute residuals are far less noisy than
-        log squared residuals, which produce near-zero scales and exploding weights.)
-    heteroscedastic : model s(X) (True) or use a constant scale (False).
-    categorical_features : column indices treated as categorical by the default models.
-    n_jobs : parallel jobs for the default models.
-    residual : "kde" (non-parametric shape for e) or "gaussian".
+    mean_model : sklearn regressor, optional
+        Model for E[A | X]. Default :func:`default_model` (boosting alone gave
+        unstable weights in our simulations).
+    scale_model : sklearn regressor, optional
+        Model for ``E[|A - m(X)| | X]``. Ignored if ``heteroscedastic=False``.
+        Absolute residuals are far less noisy than log squared residuals,
+        which produce near-zero scales and exploding weights.
+    heteroscedastic : bool, default True
+        Model s(X) (True) or use a constant scale (False).
+    residual : {"kde", "gaussian"}, default "kde"
+        Non-parametric shape for ``e``, or Gaussian.
+    categorical_features : list of int, optional
+        Column indices treated as categorical by the default models.
+    n_jobs : int, optional
+        Parallel jobs for the default models.
+    random_state : int, default 0
+        Seed for the default models.
     """
 
     def __init__(self, mean_model=None, scale_model=None, heteroscedastic=True,
@@ -52,7 +59,20 @@ class GPS(BaseEstimator):
         self.random_state = random_state
 
     def fit(self, X, A):
-        """Fit the dose mean and scale models and the residual density on (X, A)."""
+        """Fit the dose mean and scale models and the residual density.
+
+        Parameters
+        ----------
+        X : array-like
+            Confounders (numeric).
+        A : array-like
+            Dose.
+
+        Returns
+        -------
+        GPS
+            self.
+        """
         A = np.asarray(A, float)
         mm = self.mean_model if self.mean_model is not None else default_model(
             self.categorical_features, n_jobs=self.n_jobs, random_state=self.random_state)
@@ -84,7 +104,20 @@ class GPS(BaseEstimator):
         return np.full(len(X), self.scale_const_)
 
     def density(self, X, a):
-        """pi(a | x) evaluated row-wise."""
+        """Density of the dose given X, row by row.
+
+        Parameters
+        ----------
+        X : array-like
+            Confounders (numeric).
+        a : array-like
+            Dose for each row.
+
+        Returns
+        -------
+        ndarray
+            pi(a_i | x_i) for each row.
+        """
         s = self._scale(X)
         z = (np.asarray(a, float) - self.mean_model_.predict(X)) / s
         if self.residual == "kde":
@@ -96,18 +129,33 @@ class GPS(BaseEstimator):
 
 
 class DiscreteGPS(BaseEstimator):
-    """Generalised propensity score for a dose with a few distinct values
-    (tiers, counts such as notifications per week): a classifier's predicted
-    probability of each level. With a discrete dose, varpi/pi is a ratio of
-    probabilities, which is the right weight (a continuous density is not).
+    """Generalised propensity score for a dose with a few distinct values.
 
-    classifier : default stacks a spline logistic regression with boosting, which gives
+    For tiers, or counts such as notifications per week: a classifier's
+    predicted probability of each level. With a discrete dose, varpi/pi is a
+    ratio of probabilities, which is the right weight (a continuous density is
+    not). :func:`fit_dose_response` uses it automatically when the dose has at
+    most ``max_levels`` distinct values.
+
+    Parameters
+    ----------
+    classifier : sklearn classifier, optional
+        Default stacks a spline logistic regression with boosting, which gives
         far better-calibrated probabilities for rare levels than boosting alone.
-    defensive  : share of the marginal level probabilities mixed into every prediction,
-        p = (1 - defensive) * p(a | x) + defensive * p(a). This bounds each weight by
-        1 / defensive (20 by default), as the continuous GPS's defensive mixture does.
-        Without it, rare top or bottom levels got near-zero probabilities and their
-        weights blew the ends of the curve up in smaller samples.
+    defensive : float, default 0.05
+        Share of the marginal level probabilities mixed into every prediction,
+        ``p = (1 - defensive) * p(a | x) + defensive * p(a)``. This bounds each
+        weight by ``1 / defensive`` (20 by default). Without it, rare top or
+        bottom levels got near-zero probabilities and their weights blew the
+        ends of the curve up in smaller samples.
+    min_count : int, default 20
+        Levels with fewer rows are merged into a neighbour.
+    floor : float, default 1e-4
+        Lower bound on the returned probabilities.
+    n_jobs : int, optional
+        Parallel jobs for the default classifier.
+    random_state : int, default 0
+        Seed for the default classifier.
     """
 
     def __init__(self, classifier=None, defensive=0.05, min_count=20, floor=1e-4, n_jobs=None, random_state=0):
@@ -119,7 +167,20 @@ class DiscreteGPS(BaseEstimator):
         self.random_state = random_state
 
     def fit(self, X, A):
-        """Fit the level classifier on (X, A), merging levels with fewer than min_count rows."""
+        """Fit the level classifier, merging levels with fewer than ``min_count`` rows.
+
+        Parameters
+        ----------
+        X : array-like
+            Confounders (numeric).
+        A : array-like
+            Dose.
+
+        Returns
+        -------
+        DiscreteGPS
+            self.
+        """
         A = np.asarray(A, float)
         self.levels_ = np.unique(A)
         clf = self.classifier if self.classifier is not None else default_classifier(
@@ -138,7 +199,20 @@ class DiscreteGPS(BaseEstimator):
         return self
 
     def density(self, X, a):
-        """Probability of dose level a given X (a is snapped to the nearest observed level)."""
+        """Probability of each row's dose level given X.
+
+        Parameters
+        ----------
+        X : array-like
+            Confounders (numeric).
+        a : array-like
+            Dose for each row, snapped to the nearest observed level.
+
+        Returns
+        -------
+        ndarray
+            p(a_i | x_i) for each row.
+        """
         a = np.asarray(a, float)
         code = np.clip(np.searchsorted(self.levels_, a), 0, len(self.levels_) - 1)
         left = np.clip(code - 1, 0, None)
@@ -181,8 +255,23 @@ def _merge_rare(counts, min_count):
 
 @dataclass
 class Nuisances:
-    """Cross-fitted nuisance values per row: mu = E[Y | X, A], pi = density of A given X,
-    varpi = marginal density of A, m = mu averaged over X at the row's dose."""
+    """Cross-fitted nuisance values, one per row.
+
+    Attributes
+    ----------
+    mu : ndarray
+        Outcome model E[Y | X, A] at the row's own dose.
+    pi : ndarray
+        Density (or probability) of the row's dose given X.
+    varpi : ndarray
+        Marginal density of the dose.
+    m : ndarray
+        mu averaged over X at the row's dose.
+    a_grid : ndarray, optional
+        Dose grid for the variance term.
+    q : ndarray, optional
+        Each row's outcome model on ``a_grid`` (see ``nuisance_var``).
+    """
     mu: np.ndarray          # mu_hat(X_i, A_i)
     pi: np.ndarray          # pi_hat(A_i | X_i)
     varpi: np.ndarray       # varpi_hat_g(A_i)   (marginal density, within group g_i)
@@ -216,20 +305,51 @@ def _predict_chunked(fn, Xr, ar, chunk=200_000):
 def cross_fit_nuisances(X, A, Y, outcome_model, gps, groups=None, n_folds=5,
                         n_grid=60, n_ref=1000, max_ref_total=60_000, max_levels=30,
                         fold_groups=None, n_jobs=None, nuisance_var=False, random_state=0) -> Nuisances:
-    """Cross-fit outcome model and GPS; return everything the pseudo-outcomes need.
+    """Cross-fit the outcome model and the dose model.
 
-    groups      : finest grouping level (length n). Integrals over P(x) are taken
-                  *within* each group, so regressing the pseudo-outcome on
-                  (A, group) targets theta_g(a) = E[Y(a) | G = g]. The group
-                  should also be (encoded) in X so the nuisance models can use it.
-    fold_groups : ids kept together in cross-fitting (e.g. customer id).
-    n_jobs      : folds fitted in parallel threads (None = 1, -1 = all cores).
-    nuisance_var: also return q, each row's outcome model on the dose grid (centred and weighted),
-                  used for the variance term that accounts for estimating m(a) (Kennedy et al. 2017).
-    max_levels  : if A has at most this many distinct values it is treated as
-                  discrete: integrals are evaluated at those values exactly.
-    n_ref / max_ref_total : rows per group (and in total) used for the integrals.
-    Either model may be None, in which case its outputs are NaN.
+    Returns everything :func:`pseudo_outcomes` needs. Either model may be None,
+    in which case its outputs are NaN.
+
+    Parameters
+    ----------
+    X : array-like
+        Confounders, numeric. The group should also be (encoded) in X so the
+        nuisance models can use it.
+    A, Y : array-like
+        Dose and outcome.
+    outcome_model : sklearn regressor or None
+        Model for E[Y | X, A].
+    gps : GPS, DiscreteGPS, BalancingWeights or None
+        The weight model.
+    groups : array-like, optional
+        Finest grouping level, one label per row. Integrals over P(x) are taken
+        within each group, so regressing the pseudo-outcome on (A, group)
+        targets theta_g(a) = E[Y(a) | G = g].
+    n_folds : int, default 5
+        Cross-fitting folds.
+    n_grid : int, default 60
+        Dose-grid points for the integrals.
+    n_ref : int, default 1000
+        Rows per group used for the integrals.
+    max_ref_total : int, default 60000
+        Rows in total used for the integrals.
+    max_levels : int, default 30
+        If A has at most this many distinct values it is treated as discrete,
+        and integrals are evaluated at those values exactly.
+    fold_groups : array-like, optional
+        Ids kept together in cross-fitting (e.g. customer id).
+    n_jobs : int, optional
+        Folds fitted in parallel threads (None = 1, -1 = all cores).
+    nuisance_var : bool, default False
+        Also return ``q``, each row's outcome model on the dose grid (centred
+        and weighted), used for the variance term that accounts for estimating
+        m(a) (Kennedy et al. 2017).
+    random_state : int, default 0
+        Seed for the folds.
+
+    Returns
+    -------
+    Nuisances
     """
     X = np.asarray(X, float)
     A = np.asarray(A, float)
@@ -330,9 +450,23 @@ def cross_fit_nuisances(X, A, Y, outcome_model, gps, groups=None, n_folds=5,
 def pseudo_outcomes(nuis: Nuisances, Y, kind="dr", max_weight_quantile=0.99):
     """Pseudo-outcomes whose regression on A estimates the dose-response curve.
 
-    kind = "dr"      : (Y - mu) * varpi/pi + m      (Kennedy et al. 2017)
-           "ipw"     : Y * varpi/pi                 (needs GPS right)
-           "plugin"  : m                            (needs outcome model right)
+    Parameters
+    ----------
+    nuis : Nuisances
+        Output of :func:`cross_fit_nuisances`.
+    Y : array-like
+        Outcome.
+    kind : {"dr", "ipw", "plugin"}, default "dr"
+        ``"dr"``: ``(Y - mu) * varpi / pi + m`` (Kennedy et al. 2017), right if
+        either model is. ``"ipw"``: ``Y * varpi / pi``, needs the GPS right.
+        ``"plugin"``: ``m``, needs the outcome model right.
+    max_weight_quantile : float, default 0.99
+        Cap the weights ``varpi / pi`` at this quantile.
+
+    Returns
+    -------
+    ndarray
+        One pseudo-outcome per row.
     """
     w = nuis.varpi / nuis.pi
     if max_weight_quantile is not None:

@@ -31,18 +31,52 @@ def bootstrap_curves(X, A, Y, outcome_model, gps, a_grid, paths=(None,), groups=
                      verbose=False):
     """Percentile bootstrap bands for one or more curves.
 
-    paths            : group paths to return, e.g. [None, ("north",), ("north", "s17")].
-    refit_nuisances  : refit outcome model and GPS in every replicate (slow, complete)
-                       or keep the original pseudo-outcomes (fast, misses nuisance noise).
-    retune           : re-select the penalties by GCV in every replicate.
-    outcome_model, gps : None uses the package defaults (default_model() and GPS()).
     Rows are resampled within each leaf group, so every group appears in every
-    replicate and its curve stays defined.
+    replicate and its curve stays defined. The band is pointwise; use the
+    stored draws for any other summary.
 
-    X must already be numeric (see drcurves.prepare_X). The percentile band is
-    pointwise; use the stored draws for any other summary.
+    Parameters
+    ----------
+    X : array-like
+        Confounders, already numeric (see ``drcurves.prepare_X``).
+    A, Y : array-like
+        Dose and outcome.
+    outcome_model : sklearn regressor or None
+        None uses :func:`default_model`.
+    gps : GPS, DiscreteGPS or None
+        None uses :class:`GPS`.
+    a_grid : array-like
+        Doses at which to evaluate the curves.
+    paths : sequence of tuples, default (None,)
+        Group paths to return, e.g. ``[None, ("north",), ("north", "s17")]``.
+    groups : DataFrame, optional
+        Hierarchy, top to bottom.
+    pooling : {"partial", "none", "complete"}, default "partial"
+        See :class:`HierarchicalDoseResponse`.
+    n_boot : int, default 100
+        Bootstrap replicates.
+    refit_nuisances : bool, default True
+        Refit the outcome model and GPS in every replicate (slow, complete), or
+        keep the original pseudo-outcomes (fast, misses nuisance noise).
+    retune : bool, default True
+        Re-select the penalties by GCV in every replicate.
+    n_folds : int, default 5
+        Cross-fitting folds.
+    n_basis : int, default 10
+        B-spline basis functions.
+    level : float, default 0.95
+        Band level.
+    centre : bool, default False
+        Bands for the shapes.
+    random_state : int, default 0
+        Seed.
+    verbose : bool, default False
+        Print progress.
 
-    Returns {path: {"est", "lo", "hi", "draws"}}.
+    Returns
+    -------
+    dict
+        ``{path: {"est", "lo", "hi", "draws"}}``.
     """
     X, A, Y = np.asarray(X, float), np.asarray(A, float), np.asarray(Y, float)
     a_grid = np.asarray(a_grid, float)

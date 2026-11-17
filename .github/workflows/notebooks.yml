@@ -1,0 +1,31 @@
+# Executes the example notebooks end to end, so a change in drcurves or its
+# dependencies that breaks them shows up within a week. The docs render the saved
+# outputs, so this doesn't update them. Runs once a week and on demand (Actions tab,
+# "Run workflow").
+
+name: Notebooks
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Mondays at 06:00 UTC.
+    - cron: "0 6 * * 1"
+
+jobs:
+  notebooks:
+    name: Execute notebooks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: |
+          uv venv
+          uv pip install -e ".[plot]" nbconvert ipykernel
+          uv run --no-sync python -m ipykernel install --sys-prefix
+      - name: Execute
+        run: |
+          uv run --no-sync jupyter nbconvert --to notebook --execute \
+            --ExecutePreprocessor.timeout=900 --output-dir /tmp/executed examples/*.ipynb
